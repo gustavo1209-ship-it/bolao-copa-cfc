@@ -92,3 +92,7 @@ export const STAGE_BADGE_COLORS: Record<Stage, string> = {
 }
 
 export const MAX_PARTICIPANTS = 20
+
+export const STAGE_ORDER: Stage[] = [
+  'group', 'round_of_32', 'round_of_16', 'quarterfinal', 'semifinal', 'third_place', 'final'
+]
