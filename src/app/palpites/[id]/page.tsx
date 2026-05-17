@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { StageBadge } from '@/components/stage-badge'
+import { FlagImage } from '@/components/flag-image'
 import { type Match, type Prediction, type Stage, STAGE_MULTIPLIERS } from '@/types'
 import { ArrowLeft, Loader2, Save, Lock, Trophy, Minus, Plus } from 'lucide-react'
 
@@ -136,7 +137,9 @@ export default function PalpitePage({ params }: Props) {
           {/* Match header */}
           <div className="flex items-center justify-between gap-4 mb-8">
             <div className="flex-1 text-center">
-              <div className="text-4xl mb-2">{match.home_team_flag}</div>
+              <div className="flex justify-center mb-2">
+                <FlagImage flag={match.home_team_flag} size={56} />
+              </div>
               <div className="font-bold text-lg">{match.home_team}</div>
               {match.group_name && <div className="text-xs text-gray-500 mt-1">Grupo {match.group_name}</div>}
             </div>
@@ -149,7 +152,9 @@ export default function PalpitePage({ params }: Props) {
               )}
             </div>
             <div className="flex-1 text-center">
-              <div className="text-4xl mb-2">{match.away_team_flag}</div>
+              <div className="flex justify-center mb-2">
+                <FlagImage flag={match.away_team_flag} size={56} />
+              </div>
               <div className="font-bold text-lg">{match.away_team}</div>
               {match.group_name && <div className="text-xs text-gray-500 mt-1">Grupo {match.group_name}</div>}
             </div>

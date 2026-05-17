@@ -3,8 +3,9 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { Navbar } from '@/components/navbar'
 import { RankingTable } from '@/components/ranking-table'
+import { FlagImage } from '@/components/flag-image'
 import { type Standing } from '@/types'
-import { Trophy, Zap, Calendar, Users } from 'lucide-react'
+import { Trophy, Zap, Calendar, CheckCircle2 } from 'lucide-react'
 
 export default async function HomePage() {
   const supabase = await createClient()
@@ -28,6 +29,13 @@ export default async function HomePage() {
     .eq('status', 'scheduled')
     .order('match_date', { ascending: true })
     .limit(3)
+
+  const { data: recentResults } = await supabase
+    .from('matches')
+    .select('*')
+    .eq('status', 'finished')
+    .order('match_date', { ascending: false })
+    .limit(6)
 
   return (
     <div className="min-h-screen">
@@ -175,13 +183,13 @@ export default async function HomePage() {
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 flex-1">
-                      <span>{m.home_team_flag}</span>
+                      <FlagImage flag={m.home_team_flag} size={20} />
                       <span className="text-sm font-medium">{m.home_team}</span>
                     </div>
                     <span className="text-xs text-gray-500 px-2">vs</span>
                     <div className="flex items-center gap-2 flex-1 justify-end">
                       <span className="text-sm font-medium">{m.away_team}</span>
-                      <span>{m.away_team_flag}</span>
+                      <FlagImage flag={m.away_team_flag} size={20} />
                     </div>
                   </div>
                 </Link>
@@ -235,6 +243,45 @@ export default async function HomePage() {
           </div>
         </div>
       </div>
+
+      {/* Últimos Resultados */}
+      {recentResults && recentResults.length > 0 && (
+        <div className="max-w-6xl mx-auto px-4 pb-12">
+          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-lg font-bold flex items-center gap-2">
+                <CheckCircle2 size={20} className="text-green-500" />
+                Últimos Resultados
+              </h2>
+              <Link href="/palpites" className="text-sm text-orange-500 hover:text-orange-400 transition-colors">
+                Ver palpites →
+              </Link>
+            </div>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {recentResults.map((m) => (
+                <div key={m.id} className="flex items-center gap-3 p-3 rounded-xl bg-gray-800/60 border border-gray-700/50">
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0 justify-end">
+                    <span className="text-sm font-medium text-white truncate text-right">{m.home_team}</span>
+                    <FlagImage flag={m.home_team_flag} size={22} className="shrink-0" />
+                  </div>
+                  <div className="shrink-0 text-center">
+                    <div className="text-base font-bold text-white whitespace-nowrap">
+                      {m.home_score} – {m.away_score}
+                    </div>
+                    {m.group_name && (
+                      <div className="text-xs text-gray-500 mt-0.5">Grupo {m.group_name}</div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <FlagImage flag={m.away_team_flag} size={22} className="shrink-0" />
+                    <span className="text-sm font-medium text-white truncate">{m.away_team}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <footer className="border-t border-gray-800 mt-8 py-8 text-center text-gray-600 text-sm">
         <p>⚽ Bolão CFC Copa 2026 · Feito com 🧡 pela turma</p>

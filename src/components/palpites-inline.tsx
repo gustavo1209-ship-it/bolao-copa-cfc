@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { StageBadge } from '@/components/stage-badge'
+import { FlagImage } from '@/components/flag-image'
 import { type Match, type Stage, STAGE_MULTIPLIERS, STAGE_ORDER } from '@/types'
 import { CheckCircle, Lock, Loader2, Minus, Plus, Save, AlertCircle, Trophy } from 'lucide-react'
 
@@ -13,7 +14,7 @@ interface PredictionData {
   saved: boolean
 }
 
-type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
+type GlobalSaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 
 interface PalpitesInlineProps {
   matches: Match[]
@@ -33,7 +34,7 @@ export function PalpitesInline({ matches, initialPredictions, userId }: Palpites
     return state
   })
 
-  const [saveStatus, setSaveStatus] = useState<Record<string, SaveStatus>>({})
+  const [globalStatus, setGlobalStatus] = useState<GlobalSaveStatus>('idle')
 
   const now = new Date()
 
@@ -49,30 +50,50 @@ export function PalpitesInline({ matches, initialPredictions, userId }: Palpites
     })
   }
 
-  const save = useCallback(async (matchId: string) => {
-    const pred = preds[matchId]
-    setSaveStatus(s => ({ ...s, [matchId]: 'saving' }))
+  function handleScoreInput(matchId: string, side: 'home' | 'away', value: string) {
+    const num = parseInt(value, 10)
+    const clamped = isNaN(num) ? 0 : Math.max(0, Math.min(20, num))
+    setPreds(prev => {
+      const current = prev[matchId]
+      return { ...prev, [matchId]: { ...current, [side]: clamped, saved: false } }
+    })
+  }
+
+  // Partidas abertas com palpite não salvo
+  const unsavedMatches = matches.filter(m => {
+    if (isLocked(m) || m.status === 'finished') return false
+    return !preds[m.id]?.saved
+  })
+
+  const saveAll = useCallback(async () => {
+    if (unsavedMatches.length === 0) return
+    setGlobalStatus('saving')
 
     const supabase = createClient()
-    const { error } = await supabase.from('predictions').upsert({
-      user_id: userId,
-      match_id: matchId,
-      home_score_prediction: pred.home,
-      away_score_prediction: pred.away,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'user_id,match_id' })
+    let hasError = false
 
-    if (error) {
-      setSaveStatus(s => ({ ...s, [matchId]: 'error' }))
-      setTimeout(() => setSaveStatus(s => ({ ...s, [matchId]: 'idle' })), 3000)
-    } else {
-      setPreds(p => ({ ...p, [matchId]: { ...p[matchId], saved: true } }))
-      setSaveStatus(s => ({ ...s, [matchId]: 'saved' }))
-      setTimeout(() => setSaveStatus(s => ({ ...s, [matchId]: 'idle' })), 2000)
+    for (const m of unsavedMatches) {
+      const pred = preds[m.id]
+      const { error } = await supabase.from('predictions').upsert({
+        user_id: userId,
+        match_id: m.id,
+        home_score_prediction: pred.home,
+        away_score_prediction: pred.away,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id,match_id' })
+
+      if (error) {
+        hasError = true
+      } else {
+        setPreds(p => ({ ...p, [m.id]: { ...p[m.id], saved: true } }))
+      }
     }
-  }, [preds, userId])
 
-  // Agrupar por fase, depois por grupo
+    setGlobalStatus(hasError ? 'error' : 'saved')
+    setTimeout(() => setGlobalStatus('idle'), 3000)
+  }, [preds, unsavedMatches, userId])
+
+  // Agrupar por fase
   const grouped = STAGE_ORDER.reduce((acc, stage) => {
     const sm = matches.filter(m => m.stage === stage)
     if (sm.length > 0) acc[stage] = sm
@@ -88,8 +109,10 @@ export function PalpitesInline({ matches, initialPredictions, userId }: Palpites
     )
   }
 
+  const unsavedCount = unsavedMatches.length
+
   return (
-    <div className="space-y-10">
+    <div className="space-y-10 pb-24">
       {STAGE_ORDER.map(stage => {
         const stageMatches = grouped[stage]
         if (!stageMatches) return null
@@ -126,19 +149,15 @@ export function PalpitesInline({ matches, initialPredictions, userId }: Palpites
                       const pred = preds[m.id]
                       const locked = isLocked(m)
                       const finished = m.status === 'finished'
-                      const status = saveStatus[m.id] ?? 'idle'
                       const hasPrediction = initialPredictions[m.id] !== undefined
-                      const isUnsaved = !pred?.saved
 
                       return (
                         <div
                           key={m.id}
-                          className={`px-4 py-3 transition-colors ${
-                            locked ? 'opacity-70' : ''
-                          }`}
+                          className={`px-4 py-3 transition-colors ${locked ? 'opacity-70' : ''}`}
                         >
-                          {/* Layout principal */}
-                          <div className="flex items-center gap-3 min-w-0">
+                          {/* Linha 1: status icon + times + placar/inputs */}
+                          <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
 
                             {/* Status icon */}
                             <div className="shrink-0 w-5 flex justify-center">
@@ -146,141 +165,116 @@ export function PalpitesInline({ matches, initialPredictions, userId }: Palpites
                                 initialPredictions[m.id]?.pts_total > 0
                                   ? <CheckCircle size={16} className="text-green-400" />
                                   : <CheckCircle size={16} className="text-gray-600" />
-                              ) : hasPrediction && !locked ? (
-                                <div className="w-2 h-2 rounded-full bg-blue-400" />
                               ) : locked ? (
                                 <Lock size={14} className="text-gray-600" />
+                              ) : pred?.saved ? (
+                                <div className="w-2 h-2 rounded-full bg-blue-400" />
                               ) : (
-                                <div className="w-2 h-2 rounded-full bg-orange-500/60" />
+                                <div className="w-2 h-2 rounded-full bg-orange-500" />
                               )}
                             </div>
 
                             {/* Time da casa */}
-                            <div className="flex items-center gap-1.5 flex-1 min-w-0 justify-end">
-                              <span className="text-sm font-medium text-white truncate text-right">{m.home_team}</span>
-                              <span className="text-lg shrink-0">{m.home_team_flag}</span>
+                            <div className="flex items-center gap-1 sm:gap-1.5 flex-1 min-w-0 justify-end">
+                              <span className="text-xs sm:text-sm font-medium text-white truncate text-right">{m.home_team}</span>
+                              <FlagImage flag={m.home_team_flag} size={20} className="shrink-0" />
                             </div>
 
                             {/* Placar */}
                             {finished ? (
-                              // Jogo finalizado: mostrar placar real e palpite
-                              <div className="shrink-0 text-center min-w-[100px]">
-                                <div className="text-lg font-bold text-white leading-none">
-                                  {m.home_score} – {m.away_score}
+                              <div className="shrink-0 text-center px-1">
+                                <div className="text-base sm:text-lg font-bold text-white leading-none whitespace-nowrap">
+                                  {m.home_score}–{m.away_score}
                                 </div>
-                                {hasPrediction && (
-                                  <div className="text-xs mt-0.5">
-                                    <span className="text-gray-500">Seu palpite: </span>
-                                    <span className={`font-medium ${
-                                      initialPredictions[m.id]?.pts_total > 0
-                                        ? 'text-orange-400'
-                                        : 'text-gray-500'
-                                    }`}>
-                                      {initialPredictions[m.id]?.home}–{initialPredictions[m.id]?.away}
-                                    </span>
-                                    {initialPredictions[m.id]?.pts_total > 0 && (
-                                      <span className="text-green-400 ml-1">
-                                        +{initialPredictions[m.id].pts_total}
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
                               </div>
                             ) : locked ? (
-                              // Jogo travado (em andamento ou sem palpite)
-                              <div className="shrink-0 text-center min-w-[100px]">
+                              <div className="shrink-0 text-center px-1">
                                 {hasPrediction ? (
-                                  <span className="text-orange-400 font-bold">
-                                    {initialPredictions[m.id]?.home} – {initialPredictions[m.id]?.away}
+                                  <span className="text-orange-400 font-bold text-sm whitespace-nowrap">
+                                    {initialPredictions[m.id]?.home}–{initialPredictions[m.id]?.away}
                                   </span>
                                 ) : (
-                                  <span className="text-xs text-gray-600">Encerrado</span>
+                                  <span className="text-xs text-gray-600 whitespace-nowrap">Enc.</span>
                                 )}
                               </div>
                             ) : (
-                              // Inputs de palpite inline
-                              <div className="shrink-0 flex items-center gap-1.5 min-w-[140px] justify-center">
-                                {/* Home score */}
+                              <div className="shrink-0 flex items-center gap-0.5 sm:gap-1.5">
                                 <button
                                   onClick={() => adjust(m.id, 'home', -1)}
-                                  className="w-7 h-7 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 flex items-center justify-center transition-colors"
+                                  className="w-5 h-5 sm:w-7 sm:h-7 rounded-md sm:rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 flex items-center justify-center transition-colors"
                                 >
-                                  <Minus size={12} />
+                                  <Minus size={9} />
                                 </button>
-                                <span className="w-7 text-center font-bold text-white text-lg leading-none">
-                                  {pred?.home ?? 0}
-                                </span>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  pattern="[0-9]*"
+                                  value={pred?.home ?? 0}
+                                  onChange={e => handleScoreInput(m.id, 'home', e.target.value)}
+                                  onFocus={e => e.target.select()}
+                                  className="w-6 sm:w-8 text-center font-bold text-white text-sm sm:text-lg leading-none bg-transparent border-b border-gray-700 focus:border-orange-500 outline-none transition-colors p-0"
+                                />
                                 <button
                                   onClick={() => adjust(m.id, 'home', 1)}
-                                  className="w-7 h-7 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 flex items-center justify-center transition-colors"
+                                  className="w-5 h-5 sm:w-7 sm:h-7 rounded-md sm:rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 flex items-center justify-center transition-colors"
                                 >
-                                  <Plus size={12} />
+                                  <Plus size={9} />
                                 </button>
-
-                                <span className="text-gray-600 font-bold mx-0.5">–</span>
-
-                                {/* Away score */}
+                                <span className="text-gray-600 font-bold text-xs mx-0.5">–</span>
                                 <button
                                   onClick={() => adjust(m.id, 'away', -1)}
-                                  className="w-7 h-7 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 flex items-center justify-center transition-colors"
+                                  className="w-5 h-5 sm:w-7 sm:h-7 rounded-md sm:rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 flex items-center justify-center transition-colors"
                                 >
-                                  <Minus size={12} />
+                                  <Minus size={9} />
                                 </button>
-                                <span className="w-7 text-center font-bold text-white text-lg leading-none">
-                                  {pred?.away ?? 0}
-                                </span>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  pattern="[0-9]*"
+                                  value={pred?.away ?? 0}
+                                  onChange={e => handleScoreInput(m.id, 'away', e.target.value)}
+                                  onFocus={e => e.target.select()}
+                                  className="w-6 sm:w-8 text-center font-bold text-white text-sm sm:text-lg leading-none bg-transparent border-b border-gray-700 focus:border-orange-500 outline-none transition-colors p-0"
+                                />
                                 <button
                                   onClick={() => adjust(m.id, 'away', 1)}
-                                  className="w-7 h-7 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 flex items-center justify-center transition-colors"
+                                  className="w-5 h-5 sm:w-7 sm:h-7 rounded-md sm:rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 flex items-center justify-center transition-colors"
                                 >
-                                  <Plus size={12} />
+                                  <Plus size={9} />
                                 </button>
                               </div>
                             )}
 
                             {/* Time visitante */}
-                            <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                              <span className="text-lg shrink-0">{m.away_team_flag}</span>
-                              <span className="text-sm font-medium text-white truncate">{m.away_team}</span>
-                            </div>
-
-                            {/* Botão salvar / status */}
-                            <div className="shrink-0 w-20 flex justify-end">
-                              {locked || finished ? null : (
-                                status === 'saving' ? (
-                                  <Loader2 size={16} className="text-gray-500 animate-spin" />
-                                ) : status === 'saved' ? (
-                                  <span className="text-xs text-green-400 flex items-center gap-1">
-                                    <CheckCircle size={14} /> Salvo
-                                  </span>
-                                ) : status === 'error' ? (
-                                  <span className="text-xs text-red-400 flex items-center gap-1">
-                                    <AlertCircle size={14} /> Erro
-                                  </span>
-                                ) : (
-                                  <button
-                                    onClick={() => save(m.id)}
-                                    className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                                      isUnsaved
-                                        ? 'bg-orange-500 hover:bg-orange-600 text-white'
-                                        : 'bg-gray-800 hover:bg-gray-700 text-gray-400'
-                                    }`}
-                                  >
-                                    <Save size={11} />
-                                    {isUnsaved ? 'Salvar' : 'Editar'}
-                                  </button>
-                                )
-                              )}
+                            <div className="flex items-center gap-1 sm:gap-1.5 flex-1 min-w-0">
+                              <FlagImage flag={m.away_team_flag} size={20} className="shrink-0" />
+                              <span className="text-xs sm:text-sm font-medium text-white truncate">{m.away_team}</span>
                             </div>
                           </div>
 
-                          {/* Data e hora */}
-                          <div className="ml-8 mt-1 text-xs text-gray-600">
-                            {new Date(m.match_date).toLocaleDateString('pt-BR', {
-                              weekday: 'short', day: '2-digit', month: 'short',
-                              hour: '2-digit', minute: '2-digit',
-                              timeZone: 'America/Sao_Paulo',
-                            })}
+                          {/* Linha 2: data + palpite/pts (jogo finalizado) */}
+                          <div className="flex items-center justify-between mt-1.5 ml-7">
+                            <span className="text-xs text-gray-600">
+                              {new Date(m.match_date).toLocaleDateString('pt-BR', {
+                                weekday: 'short', day: '2-digit', month: 'short',
+                                hour: '2-digit', minute: '2-digit',
+                                timeZone: 'America/Sao_Paulo',
+                              })}
+                            </span>
+
+                            {finished && hasPrediction && (
+                              <span className="text-xs ml-2">
+                                <span className="text-gray-500">Palpite: </span>
+                                <span className={`font-medium ${
+                                  initialPredictions[m.id]?.pts_total > 0 ? 'text-orange-400' : 'text-gray-500'
+                                }`}>
+                                  {initialPredictions[m.id]?.home}–{initialPredictions[m.id]?.away}
+                                </span>
+                                {initialPredictions[m.id]?.pts_total > 0 && (
+                                  <span className="text-green-400 ml-1">+{initialPredictions[m.id].pts_total}</span>
+                                )}
+                              </span>
+                            )}
                           </div>
                         </div>
                       )
@@ -292,6 +286,38 @@ export function PalpitesInline({ matches, initialPredictions, userId }: Palpites
           </div>
         )
       })}
+
+      {/* Botão flutuante de salvar tudo */}
+      {(unsavedCount > 0 || globalStatus !== 'idle') && (
+        <div className="fixed bottom-6 left-0 right-0 flex justify-center z-50 pointer-events-none px-4">
+          <div className="pointer-events-auto">
+            {globalStatus === 'saving' ? (
+              <div className="flex items-center gap-2 px-6 py-3 bg-gray-800 rounded-full border border-gray-700 shadow-2xl">
+                <Loader2 size={16} className="animate-spin text-orange-500" />
+                <span className="text-sm font-medium text-white">Salvando...</span>
+              </div>
+            ) : globalStatus === 'saved' ? (
+              <div className="flex items-center gap-2 px-6 py-3 bg-green-900/90 rounded-full border border-green-700 shadow-2xl">
+                <CheckCircle size={16} className="text-green-400" />
+                <span className="text-sm font-medium text-green-400">Palpites salvos!</span>
+              </div>
+            ) : globalStatus === 'error' ? (
+              <div className="flex items-center gap-2 px-6 py-3 bg-red-900/90 rounded-full border border-red-700 shadow-2xl">
+                <AlertCircle size={16} className="text-red-400" />
+                <span className="text-sm font-medium text-red-400">Erro ao salvar. Tente novamente.</span>
+              </div>
+            ) : (
+              <button
+                onClick={saveAll}
+                className="flex items-center gap-2 px-6 py-3 bg-orange-500 hover:bg-orange-600 rounded-full shadow-2xl text-white font-semibold text-sm transition-colors"
+              >
+                <Save size={16} />
+                Salvar {unsavedCount} palpite{unsavedCount !== 1 ? 's' : ''}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

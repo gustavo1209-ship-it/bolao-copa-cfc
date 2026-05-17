@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Trophy, LayoutDashboard, ListChecks, LogOut, LogIn, Menu, X } from 'lucide-react'
+import { Trophy, LayoutDashboard, ListChecks, LogOut, LogIn, Menu, X, Users2 } from 'lucide-react'
 
 interface NavbarProps {
   userName?: string | null
@@ -28,6 +28,7 @@ export function Navbar({ userName, isAdmin }: NavbarProps) {
     { href: '/ranking', label: 'Ranking', icon: <Trophy size={16} /> },
     ...(userName ? [
       { href: '/palpites', label: 'Palpites', icon: <ListChecks size={16} /> },
+      { href: '/comparar', label: 'Comparar', icon: <Users2 size={16} /> },
       { href: '/dashboard', label: 'Meu Painel', icon: <LayoutDashboard size={16} /> },
     ] : []),
     ...(isAdmin ? [{ href: '/admin', label: 'Admin', icon: null }] : []),

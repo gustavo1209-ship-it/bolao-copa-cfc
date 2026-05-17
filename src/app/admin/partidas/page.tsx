@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { Navbar } from '@/components/navbar'
 import { StageBadge } from '@/components/stage-badge'
+import { FlagImage } from '@/components/flag-image'
 import { type Stage } from '@/types'
 import { Plus, RefreshCw, CheckCircle, Clock, Play } from 'lucide-react'
 
@@ -61,7 +62,7 @@ export default async function AdminPartidasPage() {
                 {/* Teams */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 text-sm font-medium">
-                    <span>{m.home_team_flag}</span>
+                    <FlagImage flag={m.home_team_flag} size={18} />
                     <span>{m.home_team}</span>
                     {m.status === 'finished' ? (
                       <span className="text-white font-bold">{m.home_score} – {m.away_score}</span>
@@ -69,7 +70,7 @@ export default async function AdminPartidasPage() {
                       <span className="text-gray-500">vs</span>
                     )}
                     <span>{m.away_team}</span>
-                    <span>{m.away_team_flag}</span>
+                    <FlagImage flag={m.away_team_flag} size={18} />
                   </div>
                   <div className="text-xs text-gray-500 mt-0.5">
                     {new Date(m.match_date).toLocaleDateString('pt-BR', {

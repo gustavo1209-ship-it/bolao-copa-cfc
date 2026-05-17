@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { Navbar } from '@/components/navbar'
 import { StageBadge } from '@/components/stage-badge'
+import { FlagImage } from '@/components/flag-image'
 import { type Standing, type Stage, STAGE_MULTIPLIERS } from '@/types'
 import { Trophy, Target, CheckCircle, XCircle, Clock, TrendingUp } from 'lucide-react'
 
@@ -111,11 +112,11 @@ export default async function DashboardPage() {
                     className="flex items-center justify-between p-3 bg-gray-800/60 rounded-xl hover:bg-gray-800 transition-colors border border-gray-700/50 hover:border-orange-500/30"
                   >
                     <div className="flex items-center gap-2 text-sm">
-                      <span>{m.home_team_flag}</span>
+                      <FlagImage flag={m.home_team_flag} size={18} />
                       <span className="font-medium">{m.home_team}</span>
                       <span className="text-gray-500">vs</span>
                       <span className="font-medium">{m.away_team}</span>
-                      <span>{m.away_team_flag}</span>
+                      <FlagImage flag={m.away_team_flag} size={18} />
                     </div>
                     <span className="text-xs text-orange-500 font-medium ml-2 shrink-0">Palpitar →</span>
                   </Link>
@@ -164,7 +165,7 @@ export default async function DashboardPage() {
                       </div>
                       <div className="flex items-center justify-between text-sm">
                         <span className="flex items-center gap-1">
-                          <span>{match?.home_team_flag}</span>
+                          <FlagImage flag={match?.home_team_flag ?? ''} size={16} />
                           <span className="font-medium">{match?.home_team}</span>
                         </span>
                         <div className="flex items-center gap-2 text-center">
@@ -179,7 +180,7 @@ export default async function DashboardPage() {
                         </div>
                         <span className="flex items-center gap-1 justify-end">
                           <span className="font-medium">{match?.away_team}</span>
-                          <span>{match?.away_team_flag}</span>
+                          <FlagImage flag={match?.away_team_flag ?? ''} size={16} />
                         </span>
                       </div>
                       {!isFinished && (
