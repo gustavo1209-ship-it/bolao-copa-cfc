@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { Navbar } from '@/components/navbar'
 import { PalpitesInline } from '@/components/palpites-inline'
+import { AutoRefresh } from '@/components/auto-refresh'
 import { type Match } from '@/types'
 
 export default async function PalpitesPage() {
@@ -34,8 +35,15 @@ export default async function PalpitesPage() {
   const total = matches?.length ?? 0
   const done = myPredictions?.length ?? 0
 
+  const now = Date.now()
+  const hasActiveMatches = matches?.some(m =>
+    m.status === 'in_progress' ||
+    (m.status === 'scheduled' && new Date(m.match_date).getTime() <= now && new Date(m.match_date).getTime() >= now - 3 * 60 * 60 * 1000)
+  ) ?? false
+
   return (
     <div className="min-h-screen">
+      {hasActiveMatches && <AutoRefresh intervalMs={60_000} />}
       <Navbar userName={profile?.name} isAdmin={profile?.is_admin} />
 
       <div className="max-w-4xl mx-auto px-4 py-10">

@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { Navbar } from '@/components/navbar'
 import { RankingTable } from '@/components/ranking-table'
+import { AutoRefresh } from '@/components/auto-refresh'
 import { type Standing } from '@/types'
 import { Trophy } from 'lucide-react'
 
@@ -19,8 +20,18 @@ export default async function RankingPage() {
     .select('*')
     .order('total_pts', { ascending: false })
 
+  // Verifica se há partidas ativas (em andamento ou que deveriam ter começado há até 3h)
+  const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
+  const { data: activeMatches } = await supabase
+    .from('matches')
+    .select('id')
+    .or(`status.eq.in_progress,and(status.eq.scheduled,match_date.gte.${threeHoursAgo},match_date.lte.${new Date().toISOString()})`)
+    .limit(1)
+  const hasActiveMatches = (activeMatches?.length ?? 0) > 0
+
   return (
     <div className="min-h-screen">
+      {hasActiveMatches && <AutoRefresh intervalMs={60_000} />}
       <Navbar userName={profile?.name} isAdmin={profile?.is_admin} />
 
       <div className="max-w-4xl mx-auto px-4 py-10">
