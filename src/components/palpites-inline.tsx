@@ -8,8 +8,8 @@ import { type Match, type Stage, STAGE_MULTIPLIERS, STAGE_ORDER } from '@/types'
 import { CheckCircle, Lock, Loader2, Minus, Plus, Save, AlertCircle, Trophy } from 'lucide-react'
 
 interface PredictionData {
-  home: number
-  away: number
+  home: number | null
+  away: number | null
   pts_total?: number
   saved: boolean
 }
@@ -29,7 +29,7 @@ export function PalpitesInline({ matches, initialPredictions, userId }: Palpites
       const existing = initialPredictions[m.id]
       state[m.id] = existing
         ? { home: existing.home, away: existing.away, pts_total: existing.pts_total, saved: true }
-        : { home: 0, away: 0, saved: false }
+        : { home: null, away: null, saved: false }
     }
     return state
   })
@@ -45,24 +45,31 @@ export function PalpitesInline({ matches, initialPredictions, userId }: Palpites
   function adjust(matchId: string, side: 'home' | 'away', delta: number) {
     setPreds(prev => {
       const current = prev[matchId]
-      const newVal = Math.max(0, Math.min(20, (current[side] ?? 0) + delta))
+      const base = current[side] ?? 0
+      const newVal = Math.max(0, Math.min(20, base + delta))
       return { ...prev, [matchId]: { ...current, [side]: newVal, saved: false } }
     })
   }
 
   function handleScoreInput(matchId: string, side: 'home' | 'away', value: string) {
+    if (value === '') {
+      setPreds(prev => ({ ...prev, [matchId]: { ...prev[matchId], [side]: null, saved: false } }))
+      return
+    }
     const num = parseInt(value, 10)
-    const clamped = isNaN(num) ? 0 : Math.max(0, Math.min(20, num))
+    const clamped = isNaN(num) ? null : Math.max(0, Math.min(20, num))
     setPreds(prev => {
       const current = prev[matchId]
       return { ...prev, [matchId]: { ...current, [side]: clamped, saved: false } }
     })
   }
 
-  // Partidas abertas com palpite não salvo
+  // Partidas abertas com palpite preenchido mas não salvo (ambos os placares precisam estar definidos)
   const unsavedMatches = matches.filter(m => {
     if (isLocked(m) || m.status === 'finished') return false
-    return !preds[m.id]?.saved
+    const pred = preds[m.id]
+    if (pred?.home === null || pred?.away === null) return false
+    return !pred?.saved
   })
 
   const saveAll = useCallback(async () => {
@@ -74,6 +81,7 @@ export function PalpitesInline({ matches, initialPredictions, userId }: Palpites
 
     for (const m of unsavedMatches) {
       const pred = preds[m.id]
+      if (pred.home === null || pred.away === null) continue
       const { error } = await supabase.from('predictions').upsert({
         user_id: userId,
         match_id: m.id,
@@ -209,7 +217,7 @@ export function PalpitesInline({ matches, initialPredictions, userId }: Palpites
                                   type="text"
                                   inputMode="numeric"
                                   pattern="[0-9]*"
-                                  value={pred?.home ?? 0}
+                                  value={pred?.home ?? ''}
                                   onChange={e => handleScoreInput(m.id, 'home', e.target.value)}
                                   onFocus={e => e.target.select()}
                                   className="w-6 sm:w-8 text-center font-bold text-white text-sm sm:text-lg leading-none bg-transparent border-b border-gray-700 focus:border-orange-500 outline-none transition-colors p-0"
@@ -231,7 +239,7 @@ export function PalpitesInline({ matches, initialPredictions, userId }: Palpites
                                   type="text"
                                   inputMode="numeric"
                                   pattern="[0-9]*"
-                                  value={pred?.away ?? 0}
+                                  value={pred?.away ?? ''}
                                   onChange={e => handleScoreInput(m.id, 'away', e.target.value)}
                                   onFocus={e => e.target.select()}
                                   className="w-6 sm:w-8 text-center font-bold text-white text-sm sm:text-lg leading-none bg-transparent border-b border-gray-700 focus:border-orange-500 outline-none transition-colors p-0"

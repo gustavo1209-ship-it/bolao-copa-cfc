@@ -1,8 +1,11 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import localFont from 'next/font/local'
 import './globals.css'
 
-const inter = Inter({ subsets: ['latin'] })
+const soccerScoreboard = localFont({
+  src: '../../public/fonts/SoccerScoreboard.otf',
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
   title: 'Bolão Copa 2026 – CFC',
@@ -11,7 +14,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pt-BR" className={inter.className}>
+    <html lang="pt-BR" className={soccerScoreboard.className}>
       <body className="min-h-screen bg-gray-950 text-white antialiased">
         {children}
       </body>

@@ -121,15 +121,31 @@ create policy "matches_delete" on public.matches
     exists (select 1 from public.profiles where id = auth.uid() and is_admin = true)
   );
 
--- Predictions: usuário lê/escreve apenas as próprias
+-- Predictions: usuário lê as próprias; só escreve antes do jogo começar
 create policy "predictions_select" on public.predictions
   for select using (auth.uid() = user_id);
 
 create policy "predictions_insert" on public.predictions
-  for insert with check (auth.uid() = user_id);
+  for insert with check (
+    auth.uid() = user_id
+    and exists (
+      select 1 from public.matches
+      where id = match_id
+        and match_date > now()
+        and status = 'scheduled'
+    )
+  );
 
 create policy "predictions_update" on public.predictions
-  for update using (auth.uid() = user_id);
+  for update using (
+    auth.uid() = user_id
+    and exists (
+      select 1 from public.matches
+      where id = match_id
+        and match_date > now()
+        and status = 'scheduled'
+    )
+  );
 
 -- Admin pode atualizar pontuações (via API route com service role ou via admin_uid check)
 create policy "predictions_admin_update" on public.predictions
