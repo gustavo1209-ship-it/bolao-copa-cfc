@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import { NextResponse } from 'next/server'
 import { calculatePoints } from '@/lib/scoring'
 import { type Stage } from '@/types'
@@ -9,14 +10,17 @@ interface RouteProps {
 
 export async function POST(request: Request, { params }: RouteProps) {
   const { matchId } = await params
-  const supabase = await createClient()
 
-  // Verificar se é admin
-  const { data: { user } } = await supabase.auth.getUser()
+  // Verificação de auth via client normal (respeita sessão do usuário)
+  const authClient = await createClient()
+  const { data: { user } } = await authClient.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
 
-  const { data: profile } = await supabase.from('profiles').select('is_admin').eq('id', user.id).single()
+  const { data: profile } = await authClient.from('profiles').select('is_admin').eq('id', user.id).single()
   if (!profile?.is_admin) return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
+
+  // Service client para bypassar RLS nas operações de dados
+  const supabase = createServiceClient()
 
   // Verificar se é chamada manual (placar já atualizado) ou via SofaScore
   const body = await request.json().catch(() => ({}))

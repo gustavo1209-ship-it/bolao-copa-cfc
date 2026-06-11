@@ -128,21 +128,51 @@ export default function EditarPartidaPage({ params }: Props) {
     setSyncMsg('')
     setError('')
 
-    const res = await fetch(`/api/sofascore/sync/${matchId}`, { method: 'POST' })
+    // Busca do SofaScore direto pelo browser (evita bloqueio de IP de servidor)
+    let sfHomeScore: number
+    let sfAwayScore: number
+    try {
+      const sfRes = await fetch(`https://api.sofascore.com/api/v1/event/${match.sofascore_id}`, {
+        headers: { 'Accept': 'application/json' },
+        cache: 'no-store',
+      })
+      if (!sfRes.ok) {
+        setError(`SofaScore retornou status ${sfRes.status}. Use o placar manual abaixo.`)
+        setSyncing(false)
+        return
+      }
+      const sfData = await sfRes.json()
+      const event = sfData.event
+      if (!event) throw new Error('Formato inesperado')
+      const sfStatus = event.status?.type as string
+      if (sfStatus !== 'finished') {
+        setError(`Jogo ainda não finalizado no SofaScore (status: ${sfStatus})`)
+        setSyncing(false)
+        return
+      }
+      sfHomeScore = event.homeScore?.current ?? 0
+      sfAwayScore = event.awayScore?.current ?? 0
+    } catch {
+      setError('Erro ao acessar SofaScore. Use o placar manual abaixo.')
+      setSyncing(false)
+      return
+    }
+
+    // Envia para a API como sync manual com os dados já buscados
+    const res = await fetch(`/api/sofascore/sync/${matchId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ manual: true, homeScore: sfHomeScore, awayScore: sfAwayScore, status: 'finished' }),
+    })
     const data = await res.json()
 
     if (data.error) {
       setError(data.error)
     } else {
-      setSyncMsg(`✅ Sincronizado! ${data.homeScore ?? '?'}–${data.awayScore ?? '?'} (${data.status})`)
-      // Reload match data
-      const supabase = createClient()
-      const { data: updated } = await supabase.from('matches').select('*').eq('id', matchId).single()
-      if (updated) {
-        setHomeScore(updated.home_score?.toString() ?? '')
-        setAwayScore(updated.away_score?.toString() ?? '')
-        setStatus(updated.status)
-      }
+      setSyncMsg(`✅ Sincronizado! ${sfHomeScore}–${sfAwayScore} (${data.predictionsUpdated} palpites pontuados)`)
+      setHomeScore(sfHomeScore.toString())
+      setAwayScore(sfAwayScore.toString())
+      setStatus('finished')
     }
     setSyncing(false)
   }
@@ -267,12 +297,12 @@ export default function EditarPartidaPage({ params }: Props) {
               <div className="grid grid-cols-3 gap-4 items-center">
                 <div>
                   <label className={labelCls}>Gols casa</label>
-                  <input type="number" min="0" value={homeScore} onChange={e => setHomeScore(e.target.value)} placeholder="0" className={inputCls} />
+                  <input type="number" min="0" value={homeScore} onChange={e => { setHomeScore(e.target.value); if (e.target.value !== '' && awayScore !== '') setStatus('finished') }} placeholder="0" className={inputCls} />
                 </div>
                 <div className="text-center text-gray-500 pt-5 font-bold">–</div>
                 <div>
                   <label className={labelCls}>Gols visitante</label>
-                  <input type="number" min="0" value={awayScore} onChange={e => setAwayScore(e.target.value)} placeholder="0" className={inputCls} />
+                  <input type="number" min="0" value={awayScore} onChange={e => { setAwayScore(e.target.value); if (e.target.value !== '' && homeScore !== '') setStatus('finished') }} placeholder="0" className={inputCls} />
                 </div>
               </div>
               <div className="mt-3">
