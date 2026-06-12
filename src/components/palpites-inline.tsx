@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { StageBadge } from '@/components/stage-badge'
 import { FlagImage } from '@/components/flag-image'
@@ -35,8 +35,12 @@ export function PalpitesInline({ matches, initialPredictions, userId }: Palpites
   })
 
   const [globalStatus, setGlobalStatus] = useState<GlobalSaveStatus>('idle')
+  const [now, setNow] = useState(() => new Date())
 
-  const now = new Date()
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 30_000)
+    return () => clearInterval(interval)
+  }, [])
 
   function isLocked(m: Match) {
     return new Date(m.match_date) <= now || m.status !== 'scheduled'
