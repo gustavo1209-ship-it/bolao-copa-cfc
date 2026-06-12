@@ -75,7 +75,8 @@ export default async function AdminPartidasPage() {
                   <div className="text-xs text-gray-500 mt-0.5">
                     {new Date(m.match_date).toLocaleDateString('pt-BR', {
                       weekday: 'short', day: '2-digit', month: 'short',
-                      hour: '2-digit', minute: '2-digit'
+                      hour: '2-digit', minute: '2-digit',
+                      timeZone: 'America/Sao_Paulo',
                     })}
                     {m.group_name && ` • Grupo ${m.group_name}`}
                     {m.sofascore_id && ` • SofaScore ID: ${m.sofascore_id}`}

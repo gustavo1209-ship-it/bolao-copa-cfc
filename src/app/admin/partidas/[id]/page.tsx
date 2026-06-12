@@ -59,9 +59,9 @@ export default function EditarPartidaPage({ params }: Props) {
         setHomeScore(data.home_score?.toString() ?? '')
         setAwayScore(data.away_score?.toString() ?? '')
         setStatus(data.status)
-        const d = new Date(data.match_date)
-        const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
-        setMatchDate(local.toISOString().slice(0, 16))
+        // Converte para Brasília (UTC-3) para exibir no input datetime-local
+        const spMs = new Date(data.match_date).getTime() - 3 * 60 * 60 * 1000
+        setMatchDate(new Date(spMs).toISOString().slice(0, 16))
       }
       setLoading(false)
     }
@@ -86,7 +86,7 @@ export default function EditarPartidaPage({ params }: Props) {
       away_team: awayTeam,
       home_team_flag: homeFlag,
       away_team_flag: awayFlag,
-      match_date: new Date(matchDate).toISOString(),
+      match_date: new Date(matchDate + ':00-03:00').toISOString(),
       stage,
       group_name: stage === 'group' ? groupName : null,
       sofascore_id: sofascoreId ? parseInt(sofascoreId) : null,

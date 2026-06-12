@@ -73,7 +73,7 @@ export default function NovaPartidaPage() {
       away_team: awayTeam,
       home_team_flag: homeFlag,
       away_team_flag: awayFlag,
-      match_date: new Date(matchDate).toISOString(),
+      match_date: new Date(matchDate + ':00-03:00').toISOString(),
       stage,
       group_name: stage === 'group' ? groupName : null,
       sofascore_id: sofascoreId ? parseInt(sofascoreId) : null,
