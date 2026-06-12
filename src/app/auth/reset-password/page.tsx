@@ -24,6 +24,8 @@ export default function ResetPasswordPage() {
     const code = params.get('code')
 
     if (code) {
+      // Limpar o code da URL antes de trocar (evita reprocessamento pelo cliente Supabase)
+      window.history.replaceState({}, '', '/auth/reset-password')
       supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
         if (error) {
           setError('Link inválido ou expirado. Solicite um novo link de recuperação.')
