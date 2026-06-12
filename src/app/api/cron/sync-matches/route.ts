@@ -5,6 +5,67 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { calculatePoints } from '@/lib/scoring'
 import { type Stage } from '@/types'
 
+// Mapeamento PT-BR (nosso banco) → EN (ESPN)
+const ESPN_NAMES: Record<string, string> = {
+  'México': 'Mexico',
+  'África do Sul': 'South Africa',
+  'Coreia do Sul': 'South Korea',
+  'República Tcheca': 'Czech Republic',
+  'Canadá': 'Canada',
+  'Bósnia-Herzegovina': 'Bosnia-Herzegovina',
+  'Catar': 'Qatar',
+  'Suíça': 'Switzerland',
+  'Brasil': 'Brazil',
+  'Marrocos': 'Morocco',
+  'Haiti': 'Haiti',
+  'Escócia': 'Scotland',
+  'Estados Unidos': 'United States',
+  'Paraguai': 'Paraguay',
+  'Austrália': 'Australia',
+  'Turquia': 'Turkey',
+  'Alemanha': 'Germany',
+  'Curaçao': 'Curaçao',
+  'Costa do Marfim': 'Ivory Coast',
+  'Equador': 'Ecuador',
+  'Holanda': 'Netherlands',
+  'Japão': 'Japan',
+  'Suécia': 'Sweden',
+  'Tunísia': 'Tunisia',
+  'Bélgica': 'Belgium',
+  'Egito': 'Egypt',
+  'Irã': 'Iran',
+  'Nova Zelândia': 'New Zealand',
+  'Espanha': 'Spain',
+  'Cabo Verde': 'Cape Verde',
+  'Arábia Saudita': 'Saudi Arabia',
+  'Uruguai': 'Uruguay',
+  'França': 'France',
+  'Senegal': 'Senegal',
+  'Iraque': 'Iraq',
+  'Noruega': 'Norway',
+  'Argentina': 'Argentina',
+  'Argélia': 'Algeria',
+  'Áustria': 'Austria',
+  'Jordânia': 'Jordan',
+  'Portugal': 'Portugal',
+  'Congo (RD)': 'DR Congo',
+  'Uzbequistão': 'Uzbekistan',
+  'Colômbia': 'Colombia',
+  'Inglaterra': 'England',
+  'Croácia': 'Croatia',
+  'Gana': 'Ghana',
+  'Panamá': 'Panama',
+}
+
+function norm(s: string) {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
+}
+
+function teamMatches(dbName: string, espnName: string): boolean {
+  const en = ESPN_NAMES[dbName] ?? dbName
+  return norm(en) === norm(espnName)
+}
+
 export async function GET(request: Request) {
   const auth = request.headers.get('authorization')
   if (process.env.CRON_SECRET && auth !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -16,62 +77,89 @@ export async function GET(request: Request) {
   const skipped: string[] = []
   const errors: string[] = []
 
-  // Partidas que já iniciaram há pelo menos 85min, não estão finalizadas e têm ID SofaScore
+  // Partidas que já iniciaram há pelo menos 85min, não finalizadas
   const cutoff = new Date(Date.now() - 85 * 60 * 1000).toISOString()
   const { data: pending } = await supabase
     .from('matches')
-    .select('id, sofascore_id, stage, home_team, away_team')
+    .select('id, stage, home_team, away_team, match_date')
     .neq('status', 'finished')
-    .not('sofascore_id', 'is', null)
     .lt('match_date', cutoff)
 
-  for (const match of (pending ?? [])) {
+  // Agrupar por data para minimizar chamadas à ESPN
+  const byDate: Record<string, typeof pending> = {}
+  for (const m of (pending ?? [])) {
+    const d = new Date(m.match_date).toISOString().slice(0, 10).replace(/-/g, '')
+    if (!byDate[d]) byDate[d] = []
+    byDate[d]!.push(m)
+  }
+
+  for (const [dateStr, matches] of Object.entries(byDate)) {
+    let espnEvents: unknown[]
     try {
-      const sfRes = await fetch(
-        `https://api.sofascore.com/api/v1/event/${match.sofascore_id}`,
-        {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8',
-            'Referer': 'https://www.sofascore.com/',
-            'Origin': 'https://www.sofascore.com',
-            'Cache-Control': 'no-cache',
-          },
-          cache: 'no-store',
-        }
+      const res = await fetch(
+        `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${dateStr}`,
+        { cache: 'no-store' }
       )
+      if (!res.ok) {
+        for (const m of matches!) errors.push(`${m!.home_team} vs ${m!.away_team}: ESPN HTTP ${res.status}`)
+        continue
+      }
+      const data = await res.json() as { events?: unknown[] }
+      espnEvents = data.events ?? []
+    } catch (e) {
+      for (const m of matches!) errors.push(`${m!.home_team} vs ${m!.away_team}: ${String(e)}`)
+      continue
+    }
 
-      if (!sfRes.ok) {
-        errors.push(`${match.home_team} vs ${match.away_team}: HTTP ${sfRes.status}`)
+    for (const match of matches!) {
+      // Localizar o evento ESPN correspondente
+      const event = (espnEvents as Array<{
+        status: { type: { state: string; completed: boolean } }
+        competitions: Array<{
+          competitors: Array<{ homeAway: string; team: { displayName: string }; score: string }>
+        }>
+      }>).find(ev => {
+        const comps = ev.competitions?.[0]?.competitors ?? []
+        const home = comps.find(c => c.homeAway === 'home')
+        const away = comps.find(c => c.homeAway === 'away')
+        return (
+          home && away &&
+          teamMatches(match!.home_team, home.team.displayName) &&
+          teamMatches(match!.away_team, away.team.displayName)
+        )
+      })
+
+      if (!event) {
+        skipped.push(`${match!.home_team} vs ${match!.away_team}: não encontrado na ESPN`)
         continue
       }
 
-      const sfData = await sfRes.json()
-      const event = sfData?.event
-      if (!event) continue
-
-      if (event.status?.type !== 'finished') {
-        skipped.push(`${match.home_team} vs ${match.away_team}: ${event.status?.description ?? 'em andamento'}`)
+      if (!event.status.type.completed) {
+        skipped.push(`${match!.home_team} vs ${match!.away_team}: jogo em andamento`)
         continue
       }
 
-      const homeScore = event.homeScore?.current
-      const awayScore = event.awayScore?.current
-      if (homeScore === undefined || awayScore === undefined) continue
+      const comps = event.competitions[0].competitors
+      const homeComp = comps.find(c => c.homeAway === 'home')!
+      const awayComp = comps.find(c => c.homeAway === 'away')!
+      const homeScore = parseInt(homeComp.score)
+      const awayScore = parseInt(awayComp.score)
 
-      // Atualizar placar e status da partida
+      if (isNaN(homeScore) || isNaN(awayScore)) {
+        errors.push(`${match!.home_team} vs ${match!.away_team}: placar inválido`)
+        continue
+      }
+
       await supabase.from('matches').update({
         home_score: homeScore,
         away_score: awayScore,
         status: 'finished',
-      }).eq('id', match.id)
+      }).eq('id', match!.id)
 
-      // Calcular pontos de todos os palpites desta partida
       const { data: preds } = await supabase
         .from('predictions')
         .select('id, home_score_prediction, away_score_prediction')
-        .eq('match_id', match.id)
+        .eq('match_id', match!.id)
 
       for (const pred of (preds ?? [])) {
         const pts = calculatePoints({
@@ -79,7 +167,7 @@ export async function GET(request: Request) {
           awayPrediction: pred.away_score_prediction,
           homeActual: homeScore,
           awayActual: awayScore,
-          stage: match.stage as Stage,
+          stage: match!.stage as Stage,
         })
         await supabase.from('predictions').update({
           pts_result: pts.ptsResult,
@@ -91,13 +179,11 @@ export async function GET(request: Request) {
         }).eq('id', pred.id)
       }
 
-      synced.push(`${match.home_team} vs ${match.away_team} (${homeScore}–${awayScore})`)
-    } catch (e) {
-      errors.push(`${match.home_team} vs ${match.away_team}: ${String(e)}`)
+      synced.push(`${match!.home_team} vs ${match!.away_team} (${homeScore}–${awayScore})`)
     }
   }
 
-  // Fallback: recalcular pontos de partidas já finalizadas com palpites zerados
+  // Fallback: recalcular palpites zerados de partidas já finalizadas
   let recalculated = 0
   const { data: finished } = await supabase
     .from('matches')
@@ -112,8 +198,7 @@ export async function GET(request: Request) {
       .select('id, home_score_prediction, away_score_prediction, pts_total')
       .eq('match_id', match.id)
 
-    if (!preds?.length) continue
-    if (!preds.some(p => p.pts_total === 0)) continue
+    if (!preds?.length || !preds.some(p => p.pts_total === 0)) continue
 
     for (const pred of preds) {
       const pts = calculatePoints({
@@ -140,6 +225,6 @@ export async function GET(request: Request) {
     skipped,
     errors,
     recalculated,
-    message: `${synced.length} sincronizada(s) do SofaScore | ${recalculated} recalculada(s) | ${errors.length} erro(s)`,
+    message: `${synced.length} sincronizada(s) via ESPN | ${recalculated} recalculada(s) | ${errors.length} erro(s)`,
   })
 }
