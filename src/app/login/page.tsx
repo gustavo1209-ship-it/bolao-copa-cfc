@@ -44,7 +44,7 @@ export default function LoginPage() {
 
     const supabase = createClient()
     await supabase.auth.resetPasswordForEmail(forgotEmail, {
-      redirectTo: `${window.location.origin}/api/auth/callback?next=/auth/reset-password`,
+      redirectTo: `${window.location.origin}/auth/reset-password`,
     })
 
     // Sempre mostra sucesso (não revelar se email existe ou não)
