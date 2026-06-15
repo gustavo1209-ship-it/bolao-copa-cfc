@@ -1,16 +1,34 @@
 import { type Standing } from '@/types'
-import { Medal, Trophy } from 'lucide-react'
+import { Trophy, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 
 interface RankingTableProps {
   standings: Standing[]
   currentUserId?: string
   limit?: number
+  rankChanges?: Record<string, number>
 }
 
 const RANK_COLORS = ['text-yellow-400', 'text-gray-300', 'text-amber-600']
 const RANK_ICONS = ['🥇', '🥈', '🥉']
 
-export function RankingTable({ standings, currentUserId, limit }: RankingTableProps) {
+function RankBadge({ change }: { change: number | undefined }) {
+  if (change === undefined) return null
+  if (change > 0) return (
+    <span className="inline-flex items-center gap-0.5 text-green-400 text-xs font-medium">
+      <TrendingUp size={12} />
+      {change}
+    </span>
+  )
+  if (change < 0) return (
+    <span className="inline-flex items-center gap-0.5 text-red-400 text-xs font-medium">
+      <TrendingDown size={12} />
+      {Math.abs(change)}
+    </span>
+  )
+  return <Minus size={12} className="text-gray-600" />
+}
+
+export function RankingTable({ standings, currentUserId, limit, rankChanges }: RankingTableProps) {
   const rows = limit ? standings.slice(0, limit) : standings
 
   if (rows.length === 0) {
@@ -58,10 +76,13 @@ export function RankingTable({ standings, currentUserId, limit }: RankingTablePr
                   )}
                 </td>
                 <td className="py-3 pr-4">
-                  <span className={`font-medium ${isMe ? 'text-orange-400' : 'text-white'}`}>
-                    {s.name}
-                    {isMe && <span className="ml-1 text-xs text-orange-500">(você)</span>}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className={`font-medium ${isMe ? 'text-orange-400' : 'text-white'}`}>
+                      {s.name}
+                      {isMe && <span className="ml-1 text-xs text-orange-500">(você)</span>}
+                    </span>
+                    {rankChanges && <RankBadge change={rankChanges[s.id]} />}
+                  </div>
                 </td>
                 <td className="py-3 pr-4 text-center">
                   <span className={`font-bold text-base ${rankIndex === 0 ? 'text-yellow-400' : 'text-white'}`}>

@@ -20,6 +20,29 @@ export default async function RankingPage() {
     .select('*')
     .order('total_pts', { ascending: false })
 
+  // Buscar snapshot do último dia com resultados (antes de hoje em BRT)
+  const brtToday = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const { data: prevSnapshotMeta } = await supabase
+    .from('standings_snapshots')
+    .select('snapshot_date')
+    .lt('snapshot_date', brtToday)
+    .order('snapshot_date', { ascending: false })
+    .limit(1)
+    .single()
+
+  const rankChanges: Record<string, number> = {}
+  if (prevSnapshotMeta) {
+    const { data: snapshots } = await supabase
+      .from('standings_snapshots')
+      .select('user_id, rank')
+      .eq('snapshot_date', prevSnapshotMeta.snapshot_date)
+
+    for (const s of (standings ?? [])) {
+      const snap = snapshots?.find(sn => sn.user_id === s.id)
+      if (snap) rankChanges[s.id] = snap.rank - Number(s.rank) // positivo = subiu
+    }
+  }
+
   // Verifica se há partidas ativas (em andamento ou que deveriam ter começado há até 3h)
   const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
   const { data: activeMatches } = await supabase
@@ -80,7 +103,7 @@ export default async function RankingPage() {
               <span className="text-center hidden sm:block">Exatos / Acertos</span>
             </div>
           </div>
-          <RankingTable standings={(standings as Standing[]) ?? []} currentUserId={user?.id} />
+          <RankingTable standings={(standings as Standing[]) ?? []} currentUserId={user?.id} rankChanges={rankChanges} />
         </div>
 
         {/* Legenda de pontuação */}
