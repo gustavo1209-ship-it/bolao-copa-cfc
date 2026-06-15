@@ -220,11 +220,27 @@ export async function GET(request: Request) {
     recalculated++
   }
 
+  // Salvar snapshot diário das standings (hora de Brasília)
+  const brtDate = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const { data: currentStandings } = await supabase
+    .from('standings')
+    .select('id, total_pts, rank')
+
+  for (const s of (currentStandings ?? [])) {
+    await supabase.from('standings_snapshots').upsert({
+      user_id: s.id,
+      snapshot_date: brtDate,
+      rank: s.rank,
+      total_pts: s.total_pts,
+    }, { onConflict: 'user_id,snapshot_date' })
+  }
+
   return NextResponse.json({
     synced,
     skipped,
     errors,
     recalculated,
+    snapshot_date: brtDate,
     message: `${synced.length} sincronizada(s) via ESPN | ${recalculated} recalculada(s) | ${errors.length} erro(s)`,
   })
 }

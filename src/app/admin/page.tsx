@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { Navbar } from '@/components/navbar'
-import { Settings, Calendar, Users, RefreshCw } from 'lucide-react'
+import { Settings, Calendar, Users, RefreshCw, MessageCircle } from 'lucide-react'
 
 export default async function AdminPage() {
   const supabase = await createClient()
@@ -61,6 +61,15 @@ export default async function AdminPage() {
             <Users size={28} className="text-orange-500 mb-3" />
             <h2 className="font-bold text-lg mb-1 group-hover:text-orange-400 transition-colors">Ver Ranking</h2>
             <p className="text-sm text-gray-500">Acompanhe a classificação de todos os participantes</p>
+          </Link>
+
+          <Link
+            href="/admin/resumo"
+            className="bg-gray-900 border border-gray-800 hover:border-green-500/40 rounded-2xl p-6 transition-colors group"
+          >
+            <MessageCircle size={28} className="text-green-500 mb-3" />
+            <h2 className="font-bold text-lg mb-1 group-hover:text-green-400 transition-colors">Resumo do Dia</h2>
+            <p className="text-sm text-gray-500">Gere o texto com ranking e variações para enviar no WhatsApp</p>
           </Link>
         </div>
 
