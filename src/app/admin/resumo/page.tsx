@@ -7,6 +7,7 @@ import { ArrowLeft, Copy, Check, RefreshCw, Loader2, Sparkles, MessageCircle } f
 export default function ResumoPage() {
   const [rankingText, setRankingText] = useState('')
   const [highlightsText, setHighlightsText] = useState('')
+  const [missingCount, setMissingCount] = useState(0)
   const [loadingRanking, setLoadingRanking] = useState(true)
   const [loadingHighlights, setLoadingHighlights] = useState(false)
   const [copiedRanking, setCopiedRanking] = useState(false)
@@ -19,6 +20,7 @@ export default function ResumoPage() {
     const res = await fetch('/api/daily-summary')
     const data = await res.json()
     setRankingText(data.text ?? '')
+    setMissingCount(data.missingCount ?? 0)
     setLoadingRanking(false)
   }
 
@@ -70,6 +72,17 @@ export default function ResumoPage() {
             Atualizar
           </button>
         </div>
+
+        {/* Alerta palpites faltando */}
+        {missingCount > 0 && (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-2xl px-5 py-4 mb-4 flex items-center gap-3">
+            <span className="text-2xl">⚠️</span>
+            <div>
+              <p className="text-red-400 font-semibold text-sm">{missingCount} participante{missingCount > 1 ? 's' : ''} sem palpites para amanhã</p>
+              <p className="text-gray-500 text-xs mt-0.5">O alerta já está incluso no texto do ranking abaixo</p>
+            </div>
+          </div>
+        )}
 
         {/* Destaques IA */}
         <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 mb-4">

@@ -9,11 +9,23 @@ export async function GET() {
   const brtNow = new Date(Date.now() - 3 * 60 * 60 * 1000)
   const today = brtNow.toISOString().slice(0, 10)
   const yesterday = new Date(brtNow.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const tomorrow = new Date(brtNow.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
-  // Rankings atual e de ontem
-  const [{ data: current }, { data: snapshots }] = await Promise.all([
+  const [
+    { data: current },
+    { data: snapshots },
+    { data: tomorrowMatches },
+    { data: profiles },
+  ] = await Promise.all([
     supabase.from('standings').select('id, name, total_pts, rank').order('rank'),
     supabase.from('standings_snapshots').select('user_id, rank, total_pts').eq('snapshot_date', yesterday),
+    supabase.from('matches')
+      .select('id, home_team, away_team, home_team_flag, away_team_flag, match_date')
+      .eq('status', 'scheduled')
+      .gte('match_date', tomorrow + 'T00:00:00-03:00')
+      .lte('match_date', tomorrow + 'T23:59:59-03:00')
+      .order('match_date'),
+    supabase.from('profiles').select('id, name'),
   ])
 
   // Jogos finalizados hoje
@@ -25,17 +37,46 @@ export async function GET() {
     .lte('match_date', today + 'T23:59:59-03:00')
     .order('match_date')
 
+  // Participantes sem palpites para pelo menos um jogo de amanhã
+  const missingNames: string[] = []
+  if (tomorrowMatches?.length && profiles?.length) {
+    const matchIds = tomorrowMatches.map(m => m.id)
+    const { data: existingPreds } = await supabase
+      .from('predictions')
+      .select('user_id, match_id')
+      .in('match_id', matchIds)
+
+    for (const p of profiles) {
+      const missing = tomorrowMatches.some(
+        m => !existingPreds?.find(pr => pr.user_id === p.id && pr.match_id === m.id)
+      )
+      if (missing) missingNames.push(p.name.split(' ')[0])
+    }
+  }
+
   const yesterdayMap = Object.fromEntries(
     (snapshots ?? []).map(s => [s.user_id, { rank: s.rank, total_pts: s.total_pts }])
   )
 
   const RANK_EMOJI = ['🥇', '🥈', '🥉']
-
   const dateLabel = brtNow.toLocaleDateString('pt-BR', {
     day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo',
   })
 
   const lines: string[] = []
+
+  // Alerta de palpites faltando — no topo
+  if (missingNames.length > 0) {
+    const tomorrowLabel = new Date(tomorrow + 'T12:00:00').toLocaleDateString('pt-BR', {
+      day: '2-digit', month: '2-digit',
+    })
+    lines.push(`⚠️ *Sem palpites para ${tomorrowLabel}:*`)
+    for (const name of missingNames) lines.push(`❌ ${name}`)
+    lines.push('')
+    lines.push('---')
+    lines.push('')
+  }
+
   lines.push(`🏆 *Bolão CFC – ${dateLabel}* 🏆`)
   lines.push('')
   lines.push('📊 *Classificação:*')
@@ -44,11 +85,10 @@ export async function GET() {
   for (const s of (current ?? [])) {
     const prev = yesterdayMap[s.id]
     const ptsGained = prev ? s.total_pts - prev.total_pts : 0
-    const rankDiff = prev ? prev.rank - s.rank : 0 // positivo = subiu
+    const rankDiff = prev ? prev.rank - s.rank : 0
 
     const rankEmoji = RANK_EMOJI[s.rank - 1] ?? `${s.rank}º`
     const ptsStr = ptsGained > 0 ? ` _(+${ptsGained} pts)_` : ptsGained < 0 ? ` _(${ptsGained} pts)_` : ''
-
     let movStr = ''
     if (!prev) movStr = ''
     else if (rankDiff > 0) movStr = ` ⬆️${rankDiff}`
@@ -68,5 +108,5 @@ export async function GET() {
   }
 
   const text = lines.join('\n')
-  return NextResponse.json({ text, date: today })
+  return NextResponse.json({ text, date: today, missingCount: missingNames.length })
 }
