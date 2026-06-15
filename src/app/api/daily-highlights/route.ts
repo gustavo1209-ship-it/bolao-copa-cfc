@@ -1,5 +1,6 @@
+export const runtime = 'edge'
+
 import { NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export async function GET() {
@@ -72,14 +73,7 @@ Maior queda: ${biggestFall.rankChange < 0 ? `${biggestFall.name} caiu ${Math.abs
 Classificação completa: ${diffs.map(d => `${d.currentRank}º ${d.name} (${d.totalPts}pts, ${d.ptsGained >= 0 ? '+' : ''}${d.ptsGained} hoje)`).join(', ')}
 `.trim()
 
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-
-  const message = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 400,
-    messages: [{
-      role: 'user',
-      content: `Você é o comentarista mais tosco, escrachado e bizarro de um bolão da Copa do Mundo num grupo de amigos brasileiros. Gere um texto curto (máximo 6 linhas) com os destaques do dia para mandar no WhatsApp do grupo.
+  const prompt = `Você é o comentarista mais tosco, escrachado e bizarro de um bolão da Copa do Mundo num grupo de amigos brasileiros. Gere um texto curto (máximo 6 linhas) com os destaques do dia para mandar no WhatsApp do grupo.
 
 Dados do dia:
 ${contexto}
@@ -91,10 +85,28 @@ Regras:
 - Seja criativo, surpreendente e um pouco absurdo
 - NÃO use asteriscos para negrito, só texto puro (é para WhatsApp)
 - Comece direto nos comentários, sem introdução`
-    }]
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': process.env.ANTHROPIC_API_KEY ?? '',
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 400,
+      messages: [{ role: 'user', content: prompt }],
+    }),
   })
 
-  const text = message.content[0].type === 'text' ? message.content[0].text : ''
+  if (!res.ok) {
+    const err = await res.text()
+    return NextResponse.json({ error: `Erro na API Anthropic: ${err}` }, { status: 500 })
+  }
+
+  const json = await res.json() as { content: Array<{ type: string; text: string }> }
+  const text = json.content[0]?.type === 'text' ? json.content[0].text : ''
 
   return NextResponse.json({ text, context: { topGainer, worstDay, biggestClimb, biggestFall } })
 }
