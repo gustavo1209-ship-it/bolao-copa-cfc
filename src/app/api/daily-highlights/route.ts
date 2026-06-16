@@ -88,14 +88,23 @@ Jogos do dia:
 ${jogosStr}
 `.trim()
 
+  // Fatos e relações entre participantes — contexto extra para a IA
+  const PARTICIPANTE_FACTS = `
+- Henrique e Eduardo Bortolon são IRMÃOS. Henrique está na liderança do bolão enquanto Eduardo está bem abaixo na classificação. É a versão bolão dos irmãos Schumacher: Henrique é o Michael (7x campeão, dominante, imbatível) e Eduardo é o Ralf (também correu na F1 mas viveu na sombra do irmão mais famoso). Explore essa analogia de forma cômica e cruel.
+`.trim()
+
   const prompt = `Você é o comentarista mais tosco, escrachado e bizarro de um bolão da Copa do Mundo num grupo de amigos brasileiros. Gere um texto curto (máximo 8 linhas) com os destaques do dia para mandar no WhatsApp do grupo.
 
 Dados:
 ${contexto}
 
+Curiosidades dos participantes:
+${PARTICIPANTE_FACTS}
+
 Regras:
 - Comente os jogos do dia com humor: resultados surpresa, goleadas, empates frustrantes, azarões
 - Relacione os resultados dos jogos com quem foi bem ou mal no bolão
+- USE as curiosidades dos participantes para fazer comparações e piadas específicas
 - Invente apelidos cômicos baseados nos nomes das pessoas (ex: "Artur Pipoca", "Marco do Pé Frio")
 - Use humor pesado, provoque quem foi mal e elogie quem foi bem de forma exagerada e ridícula
 - Faça referências a memes brasileiros, futebol, situações absurdas
