@@ -8,8 +8,18 @@ export async function GET() {
 
   const brtNow = new Date(Date.now() - 3 * 60 * 60 * 1000)
   const today = brtNow.toISOString().slice(0, 10)
-  const yesterday = new Date(brtNow.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const tomorrow = new Date(brtNow.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+
+  // Snapshot mais recente antes de hoje (não necessariamente ontem)
+  const { data: prevMeta } = await supabase
+    .from('standings_snapshots')
+    .select('snapshot_date')
+    .lt('snapshot_date', today)
+    .order('snapshot_date', { ascending: false })
+    .limit(1)
+    .single()
+
+  const prevDate = prevMeta?.snapshot_date ?? null
 
   const [
     { data: current },
@@ -18,7 +28,9 @@ export async function GET() {
     { data: profiles },
   ] = await Promise.all([
     supabase.from('standings').select('id, name, total_pts, rank').order('rank'),
-    supabase.from('standings_snapshots').select('user_id, rank, total_pts').eq('snapshot_date', yesterday),
+    prevDate
+      ? supabase.from('standings_snapshots').select('user_id, rank, total_pts').eq('snapshot_date', prevDate)
+      : Promise.resolve({ data: [] }),
     supabase.from('matches')
       .select('id, home_team, away_team, home_team_flag, away_team_flag, match_date')
       .eq('status', 'scheduled')
