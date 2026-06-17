@@ -29,15 +29,43 @@ export async function GET() {
     return NextResponse.json({ error: 'Sem dados suficientes para gerar destaques.' }, { status: 400 })
   }
 
-  // Jogos finalizados no último dia com resultados (snapshot anterior)
+  // Jogos finalizados após o snapshot anterior (esses geraram os pontos da diferença)
   const prevDate = prevMeta.snapshot_date
   const { data: lastDayMatches } = await supabase
     .from('matches')
-    .select('home_team, home_team_flag, away_team, away_team_flag, home_score, away_score')
+    .select('id, home_team, home_team_flag, away_team, away_team_flag, home_score, away_score, match_date')
     .eq('status', 'finished')
-    .gte('match_date', prevDate + 'T00:00:00-03:00')
-    .lte('match_date', prevDate + 'T23:59:59-03:00')
+    .gt('match_date', prevDate + 'T23:59:59-03:00')
+    .lte('match_date', today + 'T23:59:59-03:00')
     .order('match_date')
+
+  // Palpites individuais por jogo (para o contexto da IA)
+  const matchIds = (lastDayMatches ?? []).map(m => m.id)
+  let predsByMatch: Record<string, Array<{ name: string; home: number; away: number; pts: number }>> = {}
+  if (matchIds.length > 0) {
+    const { data: rawPreds } = await supabase
+      .from('predictions')
+      .select('user_id, match_id, home_score_prediction, away_score_prediction, pts_total')
+      .in('match_id', matchIds)
+
+    const userIds = [...new Set((rawPreds ?? []).map(p => p.user_id))]
+    const { data: participantes } = await supabase
+      .from('profiles')
+      .select('id, name')
+      .in('id', userIds)
+
+    const profileMap = Object.fromEntries((participantes ?? []).map(p => [p.id, (p.name as string).split(' ')[0]]))
+
+    for (const pred of (rawPreds ?? [])) {
+      if (!predsByMatch[pred.match_id]) predsByMatch[pred.match_id] = []
+      predsByMatch[pred.match_id].push({
+        name: profileMap[pred.user_id] ?? 'Anon',
+        home: pred.home_score_prediction,
+        away: pred.away_score_prediction,
+        pts: pred.pts_total ?? 0,
+      })
+    }
+  }
 
   const prevMap = Object.fromEntries((prev ?? []).map(s => [s.user_id, s]))
 
@@ -64,14 +92,20 @@ export async function GET() {
   const leader = current[0]
   const last = current[current.length - 1]
 
-  const dateLabel = new Date(prevDate + 'T12:00:00').toLocaleDateString('pt-BR', {
-    day: '2-digit', month: '2-digit',
-  })
+  // Data do primeiro jogo encontrado (dia efetivo dos resultados)
+  const firstMatchDate = lastDayMatches?.[0]?.match_date
+  const dateLabel = firstMatchDate
+    ? new Date(firstMatchDate).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' })
+    : new Date(today + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
 
   const jogosStr = lastDayMatches?.length
-    ? lastDayMatches.map(m =>
-        `${m.home_team} ${m.home_score}x${m.away_score} ${m.away_team}`
-      ).join('\n')
+    ? lastDayMatches.map(m => {
+        const preds = (predsByMatch[m.id] ?? []).sort((a, b) => b.pts - a.pts)
+        const predsStr = preds.length
+          ? preds.map(p => `${p.name} palpitou ${p.home}x${p.away} (${p.pts}pts)`).join(' | ')
+          : 'sem palpites'
+        return `${m.home_team} ${m.home_score}x${m.away_score} ${m.away_team}\n  Palpites: ${predsStr}`
+      }).join('\n')
     : 'Nenhum jogo registrado'
 
   const contexto = `
@@ -102,11 +136,12 @@ Curiosidades dos participantes:
 ${PARTICIPANTE_FACTS}
 
 Regras:
-- Comente os jogos do dia com humor: resultados surpresa, goleadas, empates frustrantes, azarões
-- Relacione os resultados dos jogos com quem foi bem ou mal no bolão
-- USE as curiosidades dos participantes para fazer comparações e piadas específicas
-- Invente apelidos cômicos baseados nos nomes das pessoas (ex: "Artur Pipoca", "Marco do Pé Frio")
-- Use humor pesado, provoque quem foi mal e elogie quem foi bem de forma exagerada e ridícula
+- Os "Palpites" de cada jogo mostram o que cada um apostou e quantos pontos ganhou — use isso para fazer piadas específicas jogo a jogo
+- Cite nomes e placares: quem acertou de letra, quem errou feio, quem apostou em goleada e levou um 0x0
+- Relacione o desempenho nos palpites com a variação no ranking (quem subiu, quem caiu)
+- USE as curiosidades dos participantes para comparações e piadas específicas
+- Invente apelidos cômicos baseados nos nomes (ex: "Artur Pipoca", "Marco do Pé Frio")
+- Humor pesado: provoque quem foi mal, elogie quem foi bem de forma exagerada e ridícula
 - Faça referências a memes brasileiros, futebol, situações absurdas
 - NÃO use asteriscos para negrito, só texto puro (é para WhatsApp)
 - Comece direto nos comentários, sem introdução`
