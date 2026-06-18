@@ -9,39 +9,54 @@ export async function GET() {
   const brtNow = new Date(Date.now() - 3 * 60 * 60 * 1000)
   const today = brtNow.toISOString().slice(0, 10)
 
-  // Snapshot anterior ao dia atual
+  // Último dia BRT que teve jogo finalizado
+  const { data: lastFinished } = await supabase
+    .from('matches')
+    .select('match_date')
+    .eq('status', 'finished')
+    .order('match_date', { ascending: false })
+    .limit(1)
+    .single()
+
+  const lastGameDay = lastFinished?.match_date
+    ? new Date(new Date(lastFinished.match_date).getTime() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    : null
+
+  if (!lastGameDay) {
+    return NextResponse.json({ error: 'Sem jogos finalizados para gerar destaques.' }, { status: 400 })
+  }
+
+  // Snapshot mais recente antes do último dia com jogo — para variação de ranking
   const { data: prevMeta } = await supabase
     .from('standings_snapshots')
     .select('snapshot_date')
-    .lt('snapshot_date', today)
+    .lt('snapshot_date', lastGameDay)
     .order('snapshot_date', { ascending: false })
     .limit(1)
     .single()
 
-  const [{ data: current }, { data: prev }] = await Promise.all([
+  const [{ data: current }, { data: prev }, { data: lastDayMatches }] = await Promise.all([
     supabase.from('standings').select('id, name, total_pts, rank').order('rank'),
     prevMeta
-      ? supabase.from('standings_snapshots').select('user_id, rank, total_pts').eq('snapshot_date', prevMeta.snapshot_date)
-      : Promise.resolve({ data: [] }),
+      ? supabase.from('standings_snapshots').select('user_id, rank').eq('snapshot_date', prevMeta.snapshot_date)
+      : Promise.resolve({ data: [] as Array<{ user_id: string; rank: number }> }),
+    supabase.from('matches')
+      .select('id, home_team, home_team_flag, away_team, away_team_flag, home_score, away_score, match_date')
+      .eq('status', 'finished')
+      .gte('match_date', lastGameDay + 'T00:00:00-03:00')
+      .lte('match_date', lastGameDay + 'T23:59:59-03:00')
+      .order('match_date'),
   ])
 
-  if (!prevMeta || !current?.length) {
+  if (!current?.length) {
     return NextResponse.json({ error: 'Sem dados suficientes para gerar destaques.' }, { status: 400 })
   }
 
-  // Jogos finalizados após o snapshot anterior (esses geraram os pontos da diferença)
-  const prevDate = prevMeta.snapshot_date
-  const { data: lastDayMatches } = await supabase
-    .from('matches')
-    .select('id, home_team, home_team_flag, away_team, away_team_flag, home_score, away_score, match_date')
-    .eq('status', 'finished')
-    .gt('match_date', prevDate + 'T23:59:59-03:00')
-    .lte('match_date', today + 'T23:59:59-03:00')
-    .order('match_date')
-
-  // Palpites individuais por jogo (para o contexto da IA)
+  // Palpites individuais por jogo
   const matchIds = (lastDayMatches ?? []).map(m => m.id)
   let predsByMatch: Record<string, Array<{ name: string; home: number; away: number; pts: number }>> = {}
+  const lastDayPtsByUser: Record<string, number> = {}
+
   if (matchIds.length > 0) {
     const { data: rawPreds } = await supabase
       .from('predictions')
@@ -54,7 +69,9 @@ export async function GET() {
       .select('id, name')
       .in('id', userIds)
 
-    const profileMap = Object.fromEntries((participantes ?? []).map(p => [p.id, (p.name as string).split(' ')[0]]))
+    const profileMap = Object.fromEntries(
+      (participantes ?? []).map(p => [p.id, (p.name as string).split(' ')[0]])
+    )
 
     for (const pred of (rawPreds ?? [])) {
       if (!predsByMatch[pred.match_id]) predsByMatch[pred.match_id] = []
@@ -64,25 +81,20 @@ export async function GET() {
         away: pred.away_score_prediction,
         pts: pred.pts_total ?? 0,
       })
+      lastDayPtsByUser[pred.user_id] = (lastDayPtsByUser[pred.user_id] ?? 0) + (pred.pts_total ?? 0)
     }
   }
 
-  const prevMap = Object.fromEntries((prev ?? []).map(s => [s.user_id, s]))
+  const prevRankMap = Object.fromEntries((prev ?? []).map(s => [s.user_id, s.rank]))
 
-  const diffs = current
-    .filter(s => prevMap[s.id])
-    .map(s => {
-      const p = prevMap[s.id]
-      return {
-        name: s.name.split(' ')[0],
-        fullName: s.name,
-        currentRank: Number(s.rank),
-        prevRank: p.rank,
-        rankChange: p.rank - Number(s.rank),
-        ptsGained: s.total_pts - p.total_pts,
-        totalPts: s.total_pts,
-      }
-    })
+  const diffs = current.map(s => ({
+    name: s.name.split(' ')[0],
+    currentRank: Number(s.rank),
+    prevRank: prevRankMap[s.id] ?? Number(s.rank),
+    rankChange: (prevRankMap[s.id] ?? Number(s.rank)) - Number(s.rank),
+    ptsGained: lastDayPtsByUser[s.id] ?? 0,
+    totalPts: s.total_pts,
+  }))
 
   const topGainer = [...diffs].sort((a, b) => b.ptsGained - a.ptsGained)[0]
   const worstDay = [...diffs].sort((a, b) => a.ptsGained - b.ptsGained)[0]
@@ -92,11 +104,9 @@ export async function GET() {
   const leader = current[0]
   const last = current[current.length - 1]
 
-  // Data do primeiro jogo encontrado (dia efetivo dos resultados)
-  const firstMatchDate = lastDayMatches?.[0]?.match_date
-  const dateLabel = firstMatchDate
-    ? new Date(firstMatchDate).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' })
-    : new Date(today + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+  const dateLabel = new Date(lastGameDay + 'T12:00:00').toLocaleDateString('pt-BR', {
+    day: '2-digit', month: '2-digit',
+  })
 
   const jogosStr = lastDayMatches?.length
     ? lastDayMatches.map(m => {
@@ -110,24 +120,23 @@ export async function GET() {
 
   const contexto = `
 Data de referência: ${dateLabel}
-Líder atual: ${leader.name} com ${leader.total_pts} pts
+Líder geral: ${leader.name} com ${leader.total_pts} pts
 Lanterna: ${last.name} com ${last.total_pts} pts
 Maior pontuador do dia: ${topGainer.name} (+${topGainer.ptsGained} pts, agora em ${topGainer.currentRank}º)
 Pior dia: ${worstDay.name} (+${worstDay.ptsGained} pts)
 Maior subida: ${biggestClimb.rankChange > 0 ? `${biggestClimb.name} subiu ${biggestClimb.rankChange} posição(ões)` : 'ninguém subiu'}
 Maior queda: ${biggestFall.rankChange < 0 ? `${biggestFall.name} caiu ${Math.abs(biggestFall.rankChange)} posição(ões)` : 'ninguém caiu'}
-Classificação: ${diffs.map(d => `${d.currentRank}º ${d.name} (${d.totalPts}pts, ${d.ptsGained >= 0 ? '+' : ''}${d.ptsGained} hoje)`).join(', ')}
+Classificação do dia: ${diffs.map(d => `${d.currentRank}º ${d.name} (+${d.ptsGained} pts hoje)`).join(', ')}
 
 Jogos do dia:
 ${jogosStr}
 `.trim()
 
-  // Fatos e relações entre participantes — contexto extra para a IA
   const PARTICIPANTE_FACTS = `
-- Henrique e Eduardo Bortolon são IRMÃOS. Henrique está na liderança do bolão enquanto Eduardo está bem abaixo na classificação. É a versão bolão dos irmãos Schumacher: Henrique é o Michael (7x campeão, dominante, imbatível) e Eduardo é o Ralf (também correu na F1 mas viveu na sombra do irmão mais famoso). Explore essa analogia de forma cômica e cruel.
+- Henrique e Eduardo Bortolon são IRMÃOS. Henrique está na liderança enquanto Eduardo está bem abaixo. É a versão bolão dos irmãos Schumacher: Henrique é o Michael (7x campeão, dominante, imbatível) e Eduardo é o Ralf (também correu na F1 mas viveu na sombra do irmão). Explore de forma cômica e cruel.
 `.trim()
 
-  const prompt = `Você é o comentarista mais tosco, escrachado e bizarro de um bolão da Copa do Mundo num grupo de amigos brasileiros. Gere um texto curto (máximo 8 linhas) com os destaques do dia para mandar no WhatsApp do grupo.
+  const prompt = `Você é o Neto do programa Jogo Aberto da Band, comentando o bolão da Copa do Mundo entre amigos no WhatsApp. Fala alto, apaixonado, exagerado, sem papas na língua. Máximo 8 linhas, texto puro (sem asteriscos).
 
 Dados:
 ${contexto}
@@ -136,15 +145,14 @@ Curiosidades dos participantes:
 ${PARTICIPANTE_FACTS}
 
 Regras:
-- Os "Palpites" de cada jogo mostram o que cada um apostou e quantos pontos ganhou — use isso para fazer piadas específicas jogo a jogo
-- Cite nomes e placares: quem acertou de letra, quem errou feio, quem apostou em goleada e levou um 0x0
-- Relacione o desempenho nos palpites com a variação no ranking (quem subiu, quem caiu)
-- USE as curiosidades dos participantes para comparações e piadas específicas
-- Invente apelidos cômicos baseados nos nomes (ex: "Artur Pipoca", "Marco do Pé Frio")
-- Humor pesado: provoque quem foi mal, elogie quem foi bem de forma exagerada e ridícula
+- Use o estilo do Neto: "Ó!", "Absurdo!", "Não existe isso!", "Cadê vergonha na cara?", "Vou falar!", "Tô falando sério!", "Esse cara é bom demais!", "Meu Deus do céu!", "Que vergonha!"
+- Comente jogo a jogo: cite o placar e compare com o que cada um apostou — quem acertou de letra, quem errou feio
+- Critique duramente quem errou e elogie exageradamente quem acertou
+- Relacione os palpites com a variação no ranking (quem subiu, quem caiu)
+- USE as curiosidades dos participantes para piadas específicas
+- Invente apelidos cômicos baseados nos nomes
 - Faça referências a memes brasileiros, futebol, situações absurdas
-- NÃO use asteriscos para negrito, só texto puro (é para WhatsApp)
-- Comece direto nos comentários, sem introdução`
+- Comece direto no comentário, sem introdução`
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',

@@ -10,7 +10,20 @@ export async function GET() {
   const today = brtNow.toISOString().slice(0, 10)
   const tomorrow = new Date(brtNow.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
-  // Snapshot mais recente antes de hoje (não necessariamente ontem)
+  // Último dia BRT que teve jogo finalizado
+  const { data: lastFinished } = await supabase
+    .from('matches')
+    .select('match_date')
+    .eq('status', 'finished')
+    .order('match_date', { ascending: false })
+    .limit(1)
+    .single()
+
+  const lastGameDay = lastFinished?.match_date
+    ? new Date(new Date(lastFinished.match_date).getTime() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    : null
+
+  // Snapshot mais recente antes de hoje — só para variação de ranking
   const { data: prevMeta } = await supabase
     .from('standings_snapshots')
     .select('snapshot_date')
@@ -26,11 +39,12 @@ export async function GET() {
     { data: snapshots },
     { data: tomorrowMatches },
     { data: profiles },
+    { data: lastDayMatches },
   ] = await Promise.all([
     supabase.from('standings').select('id, name, total_pts, rank').order('rank'),
     prevDate
-      ? supabase.from('standings_snapshots').select('user_id, rank, total_pts').eq('snapshot_date', prevDate)
-      : Promise.resolve({ data: [] }),
+      ? supabase.from('standings_snapshots').select('user_id, rank').eq('snapshot_date', prevDate)
+      : Promise.resolve({ data: [] as Array<{ user_id: string; rank: number }> }),
     supabase.from('matches')
       .select('id, home_team, away_team, home_team_flag, away_team_flag, match_date')
       .eq('status', 'scheduled')
@@ -38,16 +52,27 @@ export async function GET() {
       .lte('match_date', tomorrow + 'T23:59:59-03:00')
       .order('match_date'),
     supabase.from('profiles').select('id, name'),
+    lastGameDay
+      ? supabase.from('matches')
+          .select('id')
+          .eq('status', 'finished')
+          .gte('match_date', lastGameDay + 'T00:00:00-03:00')
+          .lte('match_date', lastGameDay + 'T23:59:59-03:00')
+      : Promise.resolve({ data: [] as Array<{ id: string }> }),
   ])
 
-  // Jogos finalizados hoje
-  const { data: todayMatches } = await supabase
-    .from('matches')
-    .select('home_team, away_team, home_team_flag, away_team_flag, home_score, away_score')
-    .eq('status', 'finished')
-    .gte('match_date', today + 'T00:00:00-03:00')
-    .lte('match_date', today + 'T23:59:59-03:00')
-    .order('match_date')
+  // Pontos ganhos calculados diretamente dos palpites do último dia com jogo
+  const lastDayPtsByUser: Record<string, number> = {}
+  const lastDayMatchIds = (lastDayMatches ?? []).map(m => m.id)
+  if (lastDayMatchIds.length > 0) {
+    const { data: preds } = await supabase
+      .from('predictions')
+      .select('user_id, pts_total')
+      .in('match_id', lastDayMatchIds)
+    for (const pred of (preds ?? [])) {
+      lastDayPtsByUser[pred.user_id] = (lastDayPtsByUser[pred.user_id] ?? 0) + (pred.pts_total ?? 0)
+    }
+  }
 
   // Participantes sem palpites para pelo menos um jogo de amanhã
   const missingNames: string[] = []
@@ -66,8 +91,8 @@ export async function GET() {
     }
   }
 
-  const yesterdayMap = Object.fromEntries(
-    (snapshots ?? []).map(s => [s.user_id, { rank: s.rank, total_pts: s.total_pts }])
+  const snapshotRankMap = Object.fromEntries(
+    (snapshots ?? []).map(s => [s.user_id, s.rank])
   )
 
   const RANK_EMOJI = ['🥇', '🥈', '🥉']
@@ -77,7 +102,6 @@ export async function GET() {
 
   const lines: string[] = []
 
-  // Alerta de palpites faltando — no topo
   if (missingNames.length > 0) {
     const tomorrowLabel = new Date(tomorrow + 'T12:00:00').toLocaleDateString('pt-BR', {
       day: '2-digit', month: '2-digit',
@@ -95,20 +119,29 @@ export async function GET() {
   lines.push('')
 
   for (const s of (current ?? [])) {
-    const prev = yesterdayMap[s.id]
-    const ptsGained = prev ? s.total_pts - prev.total_pts : 0
-    const rankDiff = prev ? prev.rank - s.rank : 0
+    const prevRank = snapshotRankMap[s.id]
+    const ptsGained = lastDayPtsByUser[s.id] ?? 0
+    const rankDiff = prevRank != null ? prevRank - Number(s.rank) : null
 
     const rankEmoji = RANK_EMOJI[s.rank - 1] ?? `${s.rank}º`
-    const ptsStr = ptsGained > 0 ? ` _(+${ptsGained} pts)_` : ptsGained < 0 ? ` _(${ptsGained} pts)_` : ''
+    const ptsStr = ptsGained > 0 ? ` _(+${ptsGained} pts)_` : ''
     let movStr = ''
-    if (!prev) movStr = ''
+    if (rankDiff == null) movStr = ''
     else if (rankDiff > 0) movStr = ` ⬆️${rankDiff}`
     else if (rankDiff < 0) movStr = ` ⬇️${Math.abs(rankDiff)}`
     else movStr = ' ➡️'
 
     lines.push(`${rankEmoji} *${s.name}* · ${s.total_pts} pts${ptsStr}${movStr}`)
   }
+
+  // Jogos finalizados hoje
+  const { data: todayMatches } = await supabase
+    .from('matches')
+    .select('home_team, away_team, home_team_flag, away_team_flag, home_score, away_score')
+    .eq('status', 'finished')
+    .gte('match_date', today + 'T00:00:00-03:00')
+    .lte('match_date', today + 'T23:59:59-03:00')
+    .order('match_date')
 
   if (todayMatches && todayMatches.length > 0) {
     lines.push('')
