@@ -17,12 +17,51 @@ interface EvolutionSeries {
   name: string
   color: string
   data: (number | null)[]
+  pts: number[]
 }
 
 interface EvolutionData {
   dates: string[]
   series: EvolutionSeries[]
   totalParticipants: number
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ChartTooltip({ active, payload, label, colorMap, nameMap }: any) {
+  if (!active || !payload?.length) return null
+
+  const entries = [...payload]
+    .filter((e: any) => e.value != null)
+    .sort((a: any, b: any) => (a.value ?? 999) - (b.value ?? 999))
+
+  return (
+    <div style={{
+      backgroundColor: '#0f172a',
+      border: '1px solid #1f2937',
+      borderRadius: 10,
+      padding: '10px 14px',
+      fontSize: 12,
+      minWidth: 160,
+    }}>
+      <p style={{ color: '#f9fafb', fontWeight: 600, marginBottom: 8 }}>{label}</p>
+      {entries.map((entry: any) => {
+        const userId = entry.dataKey
+        const pts = entry.payload[`${userId}_pts`] ?? 0
+        return (
+          <div key={userId} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: colorMap[userId], flexShrink: 0 }} />
+            <span style={{ color: '#d1d5db', flex: 1 }}>{nameMap[userId] ?? userId}</span>
+            <span style={{ color: '#f9fafb', fontWeight: 600, marginLeft: 8 }}>
+              {entry.value}º
+            </span>
+            <span style={{ color: '#6b7280', marginLeft: 4 }}>
+              · {pts} pts
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 export function EvolutionChart() {
@@ -54,6 +93,7 @@ export function EvolutionChart() {
 
   const { dates, series, totalParticipants } = data
   const nameMap = Object.fromEntries(series.map(s => [s.id, s.name]))
+  const colorMap = Object.fromEntries(series.map(s => [s.id, s.color]))
 
   const chartData = dates.map((date, i) => {
     const point: Record<string, string | number | null> = {
@@ -61,6 +101,7 @@ export function EvolutionChart() {
     }
     for (const s of series) {
       point[s.id] = s.data[i]
+      point[`${s.id}_pts`] = s.pts[i]
     }
     return point
   })
@@ -87,19 +128,7 @@ export function EvolutionChart() {
           axisLine={false}
           width={36}
         />
-        <Tooltip
-          contentStyle={{
-            backgroundColor: '#0f172a',
-            border: '1px solid #1f2937',
-            borderRadius: '10px',
-            fontSize: '12px',
-          }}
-          labelStyle={{ color: '#f9fafb', fontWeight: 600, marginBottom: 6 }}
-          itemStyle={{ color: '#d1d5db' }}
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          formatter={(value: any, key: any) => [`${value}º lugar`, nameMap[key] ?? key]}
-          itemSorter={(item) => (item.value as number) ?? 999}
-        />
+        <Tooltip content={<ChartTooltip colorMap={colorMap} nameMap={nameMap} />} />
         <Legend
           formatter={value => (
             <span style={{ color: '#9ca3af', fontSize: 12 }}>{nameMap[value] ?? value}</span>

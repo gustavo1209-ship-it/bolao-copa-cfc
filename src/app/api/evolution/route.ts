@@ -77,6 +77,7 @@ export async function GET() {
       name: profileMap[id],
       color: COLORS[i % COLORS.length],
       data: gameDays.map(day => rankByUserDate[id]?.[day] ?? null),
+      pts: gameDays.map(day => cumPts[id]?.[day] ?? 0),
     }))
 
   return NextResponse.json({
