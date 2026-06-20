@@ -2,15 +2,9 @@ import { createClient } from '@/lib/supabase/server'
 import { Navbar } from '@/components/navbar'
 import { RankingTable } from '@/components/ranking-table'
 import { AutoRefresh } from '@/components/auto-refresh'
-import { EvolutionChart, type EvolutionSeries } from '@/components/evolution-chart'
+import { EvolutionChart } from '@/components/evolution-chart'
 import { type Standing } from '@/types'
 import { Trophy, TrendingUp } from 'lucide-react'
-
-const COLORS = [
-  '#f97316', '#3b82f6', '#22c55e', '#a855f7', '#ec4899',
-  '#eab308', '#06b6d4', '#ef4444', '#14b8a6', '#f59e0b',
-  '#8b5cf6', '#10b981', '#6366f1', '#84cc16', '#f43f5e',
-]
 
 export default async function RankingPage() {
   const supabase = await createClient()
@@ -27,7 +21,7 @@ export default async function RankingPage() {
     .select('*')
     .order('total_pts', { ascending: false })
 
-  // Buscar snapshot do último dia com resultados (antes de hoje em BRT)
+  // Snapshot do último dia com resultados (para variação de ranking)
   const brtToday = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const { data: prevSnapshotMeta } = await supabase
     .from('standings_snapshots')
@@ -46,40 +40,9 @@ export default async function RankingPage() {
 
     for (const s of (standings ?? [])) {
       const snap = snapshots?.find(sn => sn.user_id === s.id)
-      if (snap) rankChanges[s.id] = snap.rank - Number(s.rank) // positivo = subiu
+      if (snap) rankChanges[s.id] = snap.rank - Number(s.rank)
     }
   }
-
-  // Histórico de posição para o gráfico de evolução
-  const { data: allSnapshots } = await supabase
-    .from('standings_snapshots')
-    .select('user_id, snapshot_date, rank')
-    .order('snapshot_date')
-
-  // Monta séries do gráfico com posição (rank) por dia
-  const datesSet = new Set((allSnapshots ?? []).map(s => s.snapshot_date))
-  const chartDates = [...datesSet].sort()
-  if (!datesSet.has(brtToday)) chartDates.push(brtToday)
-
-  const rankByUserDate: Record<string, Record<string, number>> = {}
-  for (const s of (allSnapshots ?? [])) {
-    if (!rankByUserDate[s.user_id]) rankByUserDate[s.user_id] = {}
-    rankByUserDate[s.user_id][s.snapshot_date] = s.rank
-  }
-  if (!datesSet.has(brtToday)) {
-    for (const s of (standings ?? [])) {
-      if (!rankByUserDate[s.id]) rankByUserDate[s.id] = {}
-      rankByUserDate[s.id][brtToday] = Number(s.rank)
-    }
-  }
-
-  const totalParticipants = standings?.length ?? 1
-  const evolutionSeries: EvolutionSeries[] = (standings ?? []).map((s, i) => ({
-    id: s.id,
-    name: s.name.split(' ')[0],
-    color: COLORS[i % COLORS.length],
-    data: chartDates.map(d => rankByUserDate[s.id]?.[d] ?? null),
-  }))
 
   // Verifica se há partidas ativas (em andamento ou que deveriam ter começado há até 3h)
   const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
@@ -155,7 +118,7 @@ export default async function RankingPage() {
               <p className="text-gray-500 text-xs mt-0.5">Posição por dia com jogos</p>
             </div>
           </div>
-          <EvolutionChart dates={chartDates} series={evolutionSeries} totalParticipants={totalParticipants} />
+          <EvolutionChart />
         </div>
 
         {/* Legenda de pontuação */}
