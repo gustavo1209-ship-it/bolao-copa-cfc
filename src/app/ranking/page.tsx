@@ -50,34 +50,35 @@ export default async function RankingPage() {
     }
   }
 
-  // Histórico de pontuação para o gráfico de evolução
+  // Histórico de posição para o gráfico de evolução
   const { data: allSnapshots } = await supabase
     .from('standings_snapshots')
-    .select('user_id, snapshot_date, total_pts')
+    .select('user_id, snapshot_date, rank')
     .order('snapshot_date')
 
-  // Monta séries do gráfico
+  // Monta séries do gráfico com posição (rank) por dia
   const datesSet = new Set((allSnapshots ?? []).map(s => s.snapshot_date))
   const chartDates = [...datesSet].sort()
   if (!datesSet.has(brtToday)) chartDates.push(brtToday)
 
-  const ptsByUserDate: Record<string, Record<string, number>> = {}
+  const rankByUserDate: Record<string, Record<string, number>> = {}
   for (const s of (allSnapshots ?? [])) {
-    if (!ptsByUserDate[s.user_id]) ptsByUserDate[s.user_id] = {}
-    ptsByUserDate[s.user_id][s.snapshot_date] = s.total_pts
+    if (!rankByUserDate[s.user_id]) rankByUserDate[s.user_id] = {}
+    rankByUserDate[s.user_id][s.snapshot_date] = s.rank
   }
   if (!datesSet.has(brtToday)) {
     for (const s of (standings ?? [])) {
-      if (!ptsByUserDate[s.id]) ptsByUserDate[s.id] = {}
-      ptsByUserDate[s.id][brtToday] = s.total_pts
+      if (!rankByUserDate[s.id]) rankByUserDate[s.id] = {}
+      rankByUserDate[s.id][brtToday] = Number(s.rank)
     }
   }
 
+  const totalParticipants = standings?.length ?? 1
   const evolutionSeries: EvolutionSeries[] = (standings ?? []).map((s, i) => ({
     id: s.id,
     name: s.name.split(' ')[0],
     color: COLORS[i % COLORS.length],
-    data: chartDates.map(d => ptsByUserDate[s.id]?.[d] ?? null),
+    data: chartDates.map(d => rankByUserDate[s.id]?.[d] ?? null),
   }))
 
   // Verifica se há partidas ativas (em andamento ou que deveriam ter começado há até 3h)
@@ -150,11 +151,11 @@ export default async function RankingPage() {
               <TrendingUp size={18} className="text-orange-500" />
             </div>
             <div>
-              <h3 className="font-semibold text-sm">Evolução da Pontuação</h3>
-              <p className="text-gray-500 text-xs mt-0.5">Por dia com jogos</p>
+              <h3 className="font-semibold text-sm">Evolução da Classificação</h3>
+              <p className="text-gray-500 text-xs mt-0.5">Posição por dia com jogos</p>
             </div>
           </div>
-          <EvolutionChart dates={chartDates} series={evolutionSeries} />
+          <EvolutionChart dates={chartDates} series={evolutionSeries} totalParticipants={totalParticipants} />
         </div>
 
         {/* Legenda de pontuação */}
