@@ -2,8 +2,15 @@ import { createClient } from '@/lib/supabase/server'
 import { Navbar } from '@/components/navbar'
 import { RankingTable } from '@/components/ranking-table'
 import { AutoRefresh } from '@/components/auto-refresh'
+import { EvolutionChart, type EvolutionSeries } from '@/components/evolution-chart'
 import { type Standing } from '@/types'
-import { Trophy } from 'lucide-react'
+import { Trophy, TrendingUp } from 'lucide-react'
+
+const COLORS = [
+  '#f97316', '#3b82f6', '#22c55e', '#a855f7', '#ec4899',
+  '#eab308', '#06b6d4', '#ef4444', '#14b8a6', '#f59e0b',
+  '#8b5cf6', '#10b981', '#6366f1', '#84cc16', '#f43f5e',
+]
 
 export default async function RankingPage() {
   const supabase = await createClient()
@@ -42,6 +49,36 @@ export default async function RankingPage() {
       if (snap) rankChanges[s.id] = snap.rank - Number(s.rank) // positivo = subiu
     }
   }
+
+  // Histórico de pontuação para o gráfico de evolução
+  const { data: allSnapshots } = await supabase
+    .from('standings_snapshots')
+    .select('user_id, snapshot_date, total_pts')
+    .order('snapshot_date')
+
+  // Monta séries do gráfico
+  const datesSet = new Set((allSnapshots ?? []).map(s => s.snapshot_date))
+  const chartDates = [...datesSet].sort()
+  if (!datesSet.has(brtToday)) chartDates.push(brtToday)
+
+  const ptsByUserDate: Record<string, Record<string, number>> = {}
+  for (const s of (allSnapshots ?? [])) {
+    if (!ptsByUserDate[s.user_id]) ptsByUserDate[s.user_id] = {}
+    ptsByUserDate[s.user_id][s.snapshot_date] = s.total_pts
+  }
+  if (!datesSet.has(brtToday)) {
+    for (const s of (standings ?? [])) {
+      if (!ptsByUserDate[s.id]) ptsByUserDate[s.id] = {}
+      ptsByUserDate[s.id][brtToday] = s.total_pts
+    }
+  }
+
+  const evolutionSeries: EvolutionSeries[] = (standings ?? []).map((s, i) => ({
+    id: s.id,
+    name: s.name.split(' ')[0],
+    color: COLORS[i % COLORS.length],
+    data: chartDates.map(d => ptsByUserDate[s.id]?.[d] ?? null),
+  }))
 
   // Verifica se há partidas ativas (em andamento ou que deveriam ter começado há até 3h)
   const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
@@ -106,8 +143,22 @@ export default async function RankingPage() {
           <RankingTable standings={(standings as Standing[]) ?? []} currentUserId={user?.id} rankChanges={rankChanges} />
         </div>
 
+        {/* Gráfico de evolução */}
+        <div className="mt-8 bg-gray-900 rounded-2xl border border-gray-800 p-5">
+          <div className="flex items-center gap-2 mb-6">
+            <div className="p-2 bg-orange-500/20 rounded-xl">
+              <TrendingUp size={18} className="text-orange-500" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-sm">Evolução da Pontuação</h3>
+              <p className="text-gray-500 text-xs mt-0.5">Por dia com jogos</p>
+            </div>
+          </div>
+          <EvolutionChart dates={chartDates} series={evolutionSeries} />
+        </div>
+
         {/* Legenda de pontuação */}
-        <div className="mt-8 bg-gray-900/60 rounded-2xl border border-gray-800 p-5">
+        <div className="mt-4 bg-gray-900/60 rounded-2xl border border-gray-800 p-5">
           <h3 className="font-semibold text-sm text-gray-400 mb-3">Como funciona a pontuação</h3>
           <div className="text-xs text-gray-500 space-y-1">
             <p>• <span className="text-blue-400">Acertou o resultado</span> (V/E/D): +3 pts × multiplicador da fase</p>
