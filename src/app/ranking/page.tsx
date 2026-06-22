@@ -5,6 +5,7 @@ import { AutoRefresh } from '@/components/auto-refresh'
 import { EvolutionChart } from '@/components/evolution-chart'
 import { type Standing } from '@/types'
 import { Trophy, TrendingUp } from 'lucide-react'
+import { getImagePath } from '@/lib/participant-images'
 
 export default async function RankingPage() {
   const supabase = await createClient()
@@ -70,30 +71,50 @@ export default async function RankingPage() {
         </div>
 
         {/* Pódio top 3 */}
-        {standings && standings.length >= 3 && (
-          <div className="grid grid-cols-3 gap-4 mb-8">
-            {[standings[1], standings[0], standings[2]].map((s, i) => {
-              if (!s) return null
-              const medals = ['🥈', '🥇', '🥉']
-              const heights = ['h-24', 'h-32', 'h-20']
-              const colors = ['border-gray-400', 'border-yellow-400', 'border-amber-600']
-              return (
-                <div key={s.id} className={`flex flex-col items-center justify-end`}>
-                  <div className="text-center mb-2">
-                    <div className="text-2xl mb-1">{medals[i]}</div>
-                    <div className={`text-sm font-bold ${s.id === user?.id ? 'text-orange-400' : 'text-white'}`}>
-                      {s.name.split(' ')[0]}
+        {standings && standings.length >= 3 && (() => {
+          const total = standings.length
+          const podiumOrder = [standings[1], standings[0], standings[2]]
+          const medals = ['🥈', '🥇', '🥉']
+          const heights = ['h-24', 'h-32', 'h-20']
+          const blockColors = ['border-gray-400', 'border-yellow-400', 'border-amber-600']
+          const ringColors = ['border-gray-400', 'border-yellow-400', 'border-amber-600']
+          const photoSizes = [68, 80, 68] // 2º menor, 1º maior, 3º menor
+          const positions = ['2º', '1º', '3º']
+          return (
+            <div className="grid grid-cols-3 gap-4 mb-8">
+              {podiumOrder.map((s, i) => {
+                if (!s) return null
+                const imgSrc = getImagePath(s.name, Number(s.rank), total)
+                const sz = photoSizes[i]
+                return (
+                  <div key={s.id} className="flex flex-col items-center justify-end">
+                    <div className="text-center mb-2">
+                      {imgSrc && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={imgSrc}
+                          alt={s.name}
+                          width={sz}
+                          height={sz}
+                          className={`rounded-full object-cover mx-auto mb-2 border-4 ${ringColors[i]}`}
+                          style={{ width: sz, height: sz }}
+                        />
+                      )}
+                      <div className="text-2xl mb-1">{medals[i]}</div>
+                      <div className={`text-sm font-bold ${s.id === user?.id ? 'text-orange-400' : 'text-white'}`}>
+                        {s.name.split(' ')[0]}
+                      </div>
+                      <div className="text-orange-500 font-bold">{s.total_pts} pts</div>
                     </div>
-                    <div className="text-orange-500 font-bold">{s.total_pts} pts</div>
+                    <div className={`w-full ${heights[i]} bg-gray-800 rounded-t-xl border-t-2 ${blockColors[i]} flex items-center justify-center`}>
+                      <span className="text-gray-500 text-sm">{positions[i]}</span>
+                    </div>
                   </div>
-                  <div className={`w-full ${heights[i]} bg-gray-800 rounded-t-xl border-t-2 ${colors[i]} flex items-center justify-center`}>
-                    <span className="text-gray-500 text-sm">{i === 1 ? '1º' : i === 0 ? '2º' : '3º'}</span>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
+                )
+              })}
+            </div>
+          )
+        })()}
 
         <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
           <div className="flex items-center justify-between mb-2">
