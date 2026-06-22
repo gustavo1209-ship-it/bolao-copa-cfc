@@ -22,26 +22,54 @@ export default async function RankingPage() {
     .select('*')
     .order('total_pts', { ascending: false })
 
-  // Snapshot do último dia com resultados (para variação de ranking)
-  const brtToday = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
-  const { data: prevSnapshotMeta } = await supabase
-    .from('standings_snapshots')
-    .select('snapshot_date')
-    .lt('snapshot_date', brtToday)
-    .order('snapshot_date', { ascending: false })
+  // Variação de ranking: calcula rank antes do último dia com jogos
+  // (mesma lógica do gráfico — sem depender de snapshots)
+  const rankChanges: Record<string, number> = {}
+  const { data: lastFinished } = await supabase
+    .from('matches')
+    .select('match_date')
+    .eq('status', 'finished')
+    .order('match_date', { ascending: false })
     .limit(1)
     .single()
 
-  const rankChanges: Record<string, number> = {}
-  if (prevSnapshotMeta) {
-    const { data: snapshots } = await supabase
-      .from('standings_snapshots')
-      .select('user_id, rank')
-      .eq('snapshot_date', prevSnapshotMeta.snapshot_date)
+  if (lastFinished?.match_date && standings?.length) {
+    const lastGameDay = new Date(new Date(lastFinished.match_date).getTime() - 3 * 60 * 60 * 1000)
+      .toISOString().slice(0, 10)
 
-    for (const s of (standings ?? [])) {
-      const snap = snapshots?.find(sn => sn.user_id === s.id)
-      if (snap) rankChanges[s.id] = snap.rank - Number(s.rank)
+    const { data: lastDayMatches } = await supabase
+      .from('matches')
+      .select('id')
+      .eq('status', 'finished')
+      .gte('match_date', lastGameDay + 'T00:00:00-03:00')
+      .lte('match_date', lastGameDay + 'T23:59:59-03:00')
+
+    const lastDayIds = (lastDayMatches ?? []).map(m => m.id)
+    if (lastDayIds.length > 0) {
+      const { data: preds } = await supabase
+        .from('predictions')
+        .select('user_id, pts_total')
+        .in('match_id', lastDayIds)
+
+      const lastDayPts: Record<string, number> = {}
+      for (const p of (preds ?? [])) {
+        lastDayPts[p.user_id] = (lastDayPts[p.user_id] ?? 0) + (p.pts_total ?? 0)
+      }
+
+      // pts antes do último dia = pts atual − pts ganhos ontem
+      const prevPts: Record<string, number> = {}
+      for (const s of standings) {
+        prevPts[s.id] = (s.total_pts ?? 0) - (lastDayPts[s.id] ?? 0)
+      }
+
+      // rank anterior = reordenar por prevPts
+      const sorted = [...standings].sort((a, b) => (prevPts[b.id] ?? 0) - (prevPts[a.id] ?? 0))
+      const prevRank: Record<string, number> = {}
+      sorted.forEach((s, i) => { prevRank[s.id] = i + 1 })
+
+      for (const s of standings) {
+        rankChanges[s.id] = (prevRank[s.id] ?? Number(s.rank)) - Number(s.rank)
+      }
     }
   }
 

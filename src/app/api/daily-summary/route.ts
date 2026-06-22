@@ -23,28 +23,13 @@ export async function GET() {
     ? new Date(new Date(lastFinished.match_date).getTime() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
     : null
 
-  // Snapshot mais recente antes de hoje — só para variação de ranking
-  const { data: prevMeta } = await supabase
-    .from('standings_snapshots')
-    .select('snapshot_date')
-    .lt('snapshot_date', today)
-    .order('snapshot_date', { ascending: false })
-    .limit(1)
-    .single()
-
-  const prevDate = prevMeta?.snapshot_date ?? null
-
   const [
     { data: current },
-    { data: snapshots },
     { data: tomorrowMatches },
     { data: profiles },
     { data: lastDayMatches },
   ] = await Promise.all([
     supabase.from('standings').select('id, name, total_pts, rank').order('rank'),
-    prevDate
-      ? supabase.from('standings_snapshots').select('user_id, rank').eq('snapshot_date', prevDate)
-      : Promise.resolve({ data: [] as Array<{ user_id: string; rank: number }> }),
     supabase.from('matches')
       .select('id, home_team, away_team, home_team_flag, away_team_flag, match_date')
       .eq('status', 'scheduled')
@@ -91,9 +76,14 @@ export async function GET() {
     }
   }
 
-  const snapshotRankMap = Object.fromEntries(
-    (snapshots ?? []).map(s => [s.user_id, s.rank])
-  )
+  // Rank anterior = reordenar por (pts_atual - pts_ultimo_dia)
+  const prevPtsMap: Record<string, number> = {}
+  for (const s of (current ?? [])) {
+    prevPtsMap[s.id] = (s.total_pts ?? 0) - (lastDayPtsByUser[s.id] ?? 0)
+  }
+  const sortedByPrev = [...(current ?? [])].sort((a, b) => (prevPtsMap[b.id] ?? 0) - (prevPtsMap[a.id] ?? 0))
+  const prevRankMap: Record<string, number> = {}
+  sortedByPrev.forEach((s, i) => { prevRankMap[s.id] = i + 1 })
 
   const RANK_EMOJI = ['🥇', '🥈', '🥉']
   const dateLabel = brtNow.toLocaleDateString('pt-BR', {
@@ -119,7 +109,7 @@ export async function GET() {
   lines.push('')
 
   for (const s of (current ?? [])) {
-    const prevRank = snapshotRankMap[s.id]
+    const prevRank = prevRankMap[s.id]
     const ptsGained = lastDayPtsByUser[s.id] ?? 0
     const rankDiff = prevRank != null ? prevRank - Number(s.rank) : null
 
