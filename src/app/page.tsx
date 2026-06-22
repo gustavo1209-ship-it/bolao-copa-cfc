@@ -22,7 +22,6 @@ export default async function HomePage() {
     .from('standings')
     .select('*')
     .order('total_pts', { ascending: false })
-    .limit(5)
 
   const { data: nextMatches } = await supabase
     .from('matches')
@@ -145,7 +144,7 @@ export default async function HomePage() {
               Ver tudo →
             </Link>
           </div>
-          <RankingTable standings={(standings as Standing[]) ?? []} currentUserId={user?.id} limit={5} />
+          <RankingTable standings={(standings as Standing[]) ?? []} currentUserId={user?.id} limit={5} totalParticipants={standings?.length} />
           {(!standings || standings.length === 0) && (
             <p className="text-center text-gray-500 text-sm mt-4">
               Seja o primeiro a fazer um palpite!

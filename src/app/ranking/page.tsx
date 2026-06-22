@@ -104,7 +104,7 @@ export default async function RankingPage() {
               <span className="text-center hidden sm:block">Exatos / Acertos</span>
             </div>
           </div>
-          <RankingTable standings={(standings as Standing[]) ?? []} currentUserId={user?.id} rankChanges={rankChanges} />
+          <RankingTable standings={(standings as Standing[]) ?? []} currentUserId={user?.id} rankChanges={rankChanges} totalParticipants={standings?.length} />
         </div>
 
         {/* Gráfico de evolução */}

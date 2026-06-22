@@ -11,6 +11,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts'
+import { getImagePath } from '@/lib/participant-images'
 
 interface EvolutionSeries {
   id: string
@@ -41,7 +42,7 @@ function ChartTooltip({ active, payload, label, colorMap, nameMap }: any) {
       borderRadius: 10,
       padding: '10px 14px',
       fontSize: 12,
-      minWidth: 160,
+      minWidth: 170,
     }}>
       <p style={{ color: '#f9fafb', fontWeight: 600, marginBottom: 8 }}>{label}</p>
       {entries.map((entry: any) => {
@@ -51,17 +52,49 @@ function ChartTooltip({ active, payload, label, colorMap, nameMap }: any) {
           <div key={userId} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: colorMap[userId], flexShrink: 0 }} />
             <span style={{ color: '#d1d5db', flex: 1 }}>{nameMap[userId] ?? userId}</span>
-            <span style={{ color: '#f9fafb', fontWeight: 600, marginLeft: 8 }}>
-              {entry.value}º
-            </span>
-            <span style={{ color: '#6b7280', marginLeft: 4 }}>
-              · {pts} pts
-            </span>
+            <span style={{ color: '#f9fafb', fontWeight: 600, marginLeft: 8 }}>{entry.value}º</span>
+            <span style={{ color: '#6b7280', marginLeft: 4 }}>· {pts} pts</span>
           </div>
         )
       })}
     </div>
   )
+}
+
+// Custom dot: regular dot nas datas intermediárias, foto circular na última data
+function makeFaceDot(userId: string, color: string, imageUrl: string, lastIndex: number) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return function FaceDot(props: any) {
+    const { cx, cy, index } = props
+    if (cx == null || cy == null) return null
+
+    if (index !== lastIndex) {
+      return <circle key={`dot-${index}`} cx={cx} cy={cy} r={3} fill={color} strokeWidth={0} />
+    }
+
+    const r = 14
+    const clipId = `face-clip-${userId}`
+    return (
+      <g key={`face-${index}`}>
+        <defs>
+          <clipPath id={clipId}>
+            <circle cx={cx} cy={cy} r={r} />
+          </clipPath>
+        </defs>
+        {/* borda colorida */}
+        <circle cx={cx} cy={cy} r={r + 2.5} fill="none" stroke={color} strokeWidth={2.5} />
+        {/* foto circular */}
+        <image
+          x={cx - r}
+          y={cy - r}
+          width={r * 2}
+          height={r * 2}
+          href={imageUrl}
+          clipPath={`url(#${clipId})`}
+        />
+      </g>
+    )
+  }
 }
 
 export function EvolutionChart() {
@@ -94,6 +127,7 @@ export function EvolutionChart() {
   const { dates, series, totalParticipants } = data
   const nameMap = Object.fromEntries(series.map(s => [s.id, s.name]))
   const colorMap = Object.fromEntries(series.map(s => [s.id, s.color]))
+  const lastIndex = dates.length - 1
 
   const chartData = dates.map((date, i) => {
     const point: Record<string, string | number | null> = {
@@ -109,8 +143,8 @@ export function EvolutionChart() {
   const ticks = Array.from({ length: totalParticipants }, (_, i) => i + 1)
 
   return (
-    <ResponsiveContainer width="100%" height={400}>
-      <LineChart data={chartData} margin={{ top: 10, right: 16, left: -8, bottom: 0 }}>
+    <ResponsiveContainer width="100%" height={460}>
+      <LineChart data={chartData} margin={{ top: 16, right: 30, left: -8, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
         <XAxis
           dataKey="date"
@@ -135,18 +169,26 @@ export function EvolutionChart() {
           )}
           wrapperStyle={{ paddingTop: 16 }}
         />
-        {series.map(s => (
-          <Line
-            key={s.id}
-            type="monotone"
-            dataKey={s.id}
-            stroke={s.color}
-            strokeWidth={2}
-            dot={{ r: 3, fill: s.color, strokeWidth: 0 }}
-            activeDot={{ r: 5, strokeWidth: 0 }}
-            connectNulls
-          />
-        ))}
+        {series.map(s => {
+          const lastRank = s.data[lastIndex] ?? s.data.findLast(v => v != null) ?? 7
+          const imgUrl = getImagePath(s.name, lastRank, totalParticipants)
+          const dotRenderer = imgUrl
+            ? makeFaceDot(s.id, s.color, imgUrl, lastIndex)
+            : undefined
+
+          return (
+            <Line
+              key={s.id}
+              type="monotone"
+              dataKey={s.id}
+              stroke={s.color}
+              strokeWidth={2}
+              dot={dotRenderer ?? { r: 3, fill: s.color, strokeWidth: 0 }}
+              activeDot={{ r: 5, strokeWidth: 0, fill: s.color }}
+              connectNulls
+            />
+          )
+        })}
       </LineChart>
     </ResponsiveContainer>
   )
