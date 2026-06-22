@@ -72,7 +72,7 @@ function makeFaceDot(userId: string, color: string, imageUrl: string, lastIndex:
       return <circle key={`dot-${index}`} cx={cx} cy={cy} r={3} fill={color} strokeWidth={0} />
     }
 
-    const r = 14
+    const r = 16
     const clipId = `face-clip-${userId}`
     return (
       <g key={`face-${index}`}>
@@ -82,7 +82,7 @@ function makeFaceDot(userId: string, color: string, imageUrl: string, lastIndex:
           </clipPath>
         </defs>
         {/* borda colorida */}
-        <circle cx={cx} cy={cy} r={r + 2.5} fill="none" stroke={color} strokeWidth={2.5} />
+        <circle cx={cx} cy={cy} r={r + 3} fill="none" stroke={color} strokeWidth={2.5} />
         {/* foto circular */}
         <image
           x={cx - r}
@@ -143,8 +143,8 @@ export function EvolutionChart() {
   const ticks = Array.from({ length: totalParticipants }, (_, i) => i + 1)
 
   return (
-    <ResponsiveContainer width="100%" height={460}>
-      <LineChart data={chartData} margin={{ top: 16, right: 30, left: -8, bottom: 0 }}>
+    <ResponsiveContainer width="100%" height={600}>
+      <LineChart data={chartData} margin={{ top: 20, right: 38, left: -8, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
         <XAxis
           dataKey="date"

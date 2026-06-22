@@ -84,10 +84,10 @@ export function RankingTable({ standings, currentUserId, limit, rankChanges, tot
                       <img
                         src={imgSrc}
                         alt={s.name}
-                        width={36}
-                        height={36}
+                        width={42}
+                        height={42}
                         className="rounded-full object-cover shrink-0 border border-gray-700"
-                        style={{ width: 36, height: 36 }}
+                        style={{ width: 42, height: 42 }}
                       />
                     )}
                     <div className="flex items-center gap-1.5 min-w-0">
