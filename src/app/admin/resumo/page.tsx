@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Copy, Check, RefreshCw, Loader2, Sparkles, MessageCircle } from 'lucide-react'
+import { ArrowLeft, Copy, Check, RefreshCw, Loader2, Sparkles, MessageCircle, Image as ImageIcon } from 'lucide-react'
+import { BannerDownload } from '@/components/banner-download'
 
 export default function ResumoPage() {
   const [rankingText, setRankingText] = useState('')
@@ -83,6 +84,16 @@ export default function ResumoPage() {
             </div>
           </div>
         )}
+
+        {/* Banner para WhatsApp */}
+        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 mb-4">
+          <div className="flex items-center gap-2 mb-4">
+            <ImageIcon size={16} className="text-blue-400" />
+            <span className="font-semibold text-sm">Banner do Dia</span>
+            <span className="text-xs text-gray-500">(enviar como imagem no WhatsApp)</span>
+          </div>
+          <BannerDownload />
+        </div>
 
         {/* Destaques IA */}
         <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 mb-4">
