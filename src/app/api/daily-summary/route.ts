@@ -8,17 +8,16 @@ export async function GET() {
 
   const brtNow = new Date(Date.now() - 3 * 60 * 60 * 1000)
   const today = brtNow.toISOString().slice(0, 10)
+  const yesterday = new Date(brtNow.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const tomorrow = new Date(brtNow.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
-  const toBrtDate = (iso: string) =>
-    new Date(new Date(iso).getTime() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
-
+  // Sessão de ontem: jogos BRT de ontem + madrugada de hoje até 06:00 BRT
+  // Isso captura partidas de meia-noite (ex: 00:00 BRT dia seguinte) como parte do dia anterior
   const [
     { data: current },
     { data: tomorrowMatches },
     { data: profiles },
-    { data: allFinishedMatches },
-    { data: allPredictions },
+    { data: sessionMatches },
   ] = await Promise.all([
     supabase.from('standings').select('id, name, total_pts, rank').order('rank'),
     supabase.from('matches')
@@ -28,53 +27,35 @@ export async function GET() {
       .lte('match_date', tomorrow + 'T23:59:59-03:00')
       .order('match_date'),
     supabase.from('profiles').select('id, name'),
-    supabase.from('matches').select('id, match_date').eq('status', 'finished').order('match_date'),
-    supabase.from('predictions').select('user_id, match_id, pts_total'),
+    supabase.from('matches')
+      .select('id, home_team, away_team, home_team_flag, away_team_flag, home_score, away_score, match_date')
+      .eq('status', 'finished')
+      .gte('match_date', yesterday + 'T00:00:00-03:00')
+      .lt('match_date', today + 'T06:00:00-03:00')
+      .order('match_date'),
   ])
 
-  // Mesma lógica do gráfico de evolução: pontos por dia → cumulativos → delta entre últimos 2 pontos
-  const matchDateMap: Record<string, string> = {}
-  for (const m of (allFinishedMatches ?? [])) {
-    matchDateMap[m.id] = toBrtDate(m.match_date)
-  }
-  const gameDays = [...new Set(Object.values(matchDateMap))].sort()
-
-  const dailyPts: Record<string, Record<string, number>> = {}
-  for (const pred of (allPredictions ?? [])) {
-    const date = matchDateMap[pred.match_id]
-    if (!date) continue
-    if (!dailyPts[pred.user_id]) dailyPts[pred.user_id] = {}
-    dailyPts[pred.user_id][date] = (dailyPts[pred.user_id][date] ?? 0) + (pred.pts_total ?? 0)
-  }
-
-  const userIds = (current ?? []).map(s => s.id)
-  const cumPts: Record<string, Record<string, number>> = {}
-  for (const userId of userIds) {
-    cumPts[userId] = {}
-    let running = 0
-    for (const day of gameDays) {
-      running += dailyPts[userId]?.[day] ?? 0
-      cumPts[userId][day] = running
+  // Pontos da sessão de ontem por participante
+  const sessionPtsByUser: Record<string, number> = {}
+  const sessionMatchIds = (sessionMatches ?? []).map(m => m.id)
+  if (sessionMatchIds.length > 0) {
+    const { data: preds } = await supabase
+      .from('predictions')
+      .select('user_id, pts_total')
+      .in('match_id', sessionMatchIds)
+    for (const pred of (preds ?? [])) {
+      sessionPtsByUser[pred.user_id] = (sessionPtsByUser[pred.user_id] ?? 0) + (pred.pts_total ?? 0)
     }
   }
 
-  const lastDay = gameDays[gameDays.length - 1] ?? null
-  const prevDay = gameDays[gameDays.length - 2] ?? null
-
-  // Delta entre o último e o penúltimo ponto do gráfico
-  const lastDayPtsByUser: Record<string, number> = {}
-  for (const userId of userIds) {
-    const cur = lastDay ? (cumPts[userId]?.[lastDay] ?? 0) : 0
-    const prev = prevDay ? (cumPts[userId]?.[prevDay] ?? 0) : 0
-    lastDayPtsByUser[userId] = cur - prev
+  // Rank anterior = ordenar por (pts atual - pts de ontem)
+  const prevPts: Record<string, number> = {}
+  for (const s of (current ?? [])) {
+    prevPts[s.id] = (s.total_pts ?? 0) - (sessionPtsByUser[s.id] ?? 0)
   }
-
-  // Rank no penúltimo ponto do gráfico (equivalente ao "antes de ontem")
-  const sortedByPrev = [...userIds].sort(
-    (a, b) => (prevDay ? (cumPts[b]?.[prevDay] ?? 0) : 0) - (prevDay ? (cumPts[a]?.[prevDay] ?? 0) : 0)
-  )
+  const sortedByPrev = [...(current ?? [])].sort((a, b) => (prevPts[b.id] ?? 0) - (prevPts[a.id] ?? 0))
   const prevRankMap: Record<string, number> = {}
-  sortedByPrev.forEach((userId, i) => { prevRankMap[userId] = i + 1 })
+  sortedByPrev.forEach((s, i) => { prevRankMap[s.id] = i + 1 })
 
   // Participantes sem palpites para pelo menos um jogo de amanhã
   const missingNames: string[] = []
@@ -118,7 +99,7 @@ export async function GET() {
 
   for (const s of (current ?? [])) {
     const prevRank = prevRankMap[s.id]
-    const ptsGained = lastDayPtsByUser[s.id] ?? 0
+    const ptsGained = sessionPtsByUser[s.id] ?? 0
     const rankDiff = prevRank != null ? prevRank - Number(s.rank) : null
 
     const rankEmoji = RANK_EMOJI[s.rank - 1] ?? `${s.rank}º`
@@ -132,26 +113,16 @@ export async function GET() {
     lines.push(`${rankEmoji} *${s.name}* · ${s.total_pts} pts${ptsStr}${movStr}`)
   }
 
-  // Jogos do último dia com partidas finalizadas
-  if (lastDay) {
-    const { data: lastDayMatchResults } = await supabase
-      .from('matches')
-      .select('home_team, away_team, home_team_flag, away_team_flag, home_score, away_score')
-      .eq('status', 'finished')
-      .gte('match_date', lastDay + 'T00:00:00-03:00')
-      .lte('match_date', lastDay + 'T23:59:59-03:00')
-      .order('match_date')
-
-    if (lastDayMatchResults && lastDayMatchResults.length > 0) {
-      const lastDayLabel = lastDay === today
-        ? 'hoje'
-        : new Date(lastDay + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
-      lines.push('')
-      lines.push(`⚽ *Jogos de ${lastDayLabel}:*`)
-      lines.push('')
-      for (const m of lastDayMatchResults) {
-        lines.push(`${m.home_team_flag ?? ''} ${m.home_team} *${m.home_score}–${m.away_score}* ${m.away_team} ${m.away_team_flag ?? ''}`)
-      }
+  // Jogos da sessão de ontem
+  if (sessionMatches && sessionMatches.length > 0) {
+    const yesterdayLabel = new Date(yesterday + 'T12:00:00').toLocaleDateString('pt-BR', {
+      day: '2-digit', month: '2-digit',
+    })
+    lines.push('')
+    lines.push(`⚽ *Jogos de ${yesterdayLabel}:*`)
+    lines.push('')
+    for (const m of sessionMatches) {
+      lines.push(`${m.home_team_flag ?? ''} ${m.home_team} *${m.home_score}–${m.away_score}* ${m.away_team} ${m.away_team_flag ?? ''}`)
     }
   }
 
