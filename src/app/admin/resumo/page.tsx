@@ -2,11 +2,14 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Copy, Check, RefreshCw, Loader2, Sparkles, MessageCircle } from 'lucide-react'
+import { ArrowLeft, Copy, Check, RefreshCw, Loader2, Sparkles, MessageCircle, Zap } from 'lucide-react'
+
+const getBrtDate = () => new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
 export default function ResumoPage() {
   const [rankingText, setRankingText] = useState('')
   const [highlightsText, setHighlightsText] = useState('')
+  const [highlightsCached, setHighlightsCached] = useState(false)
   const [missingCount, setMissingCount] = useState(0)
   const [loadingRanking, setLoadingRanking] = useState(true)
   const [loadingHighlights, setLoadingHighlights] = useState(false)
@@ -14,6 +17,8 @@ export default function ResumoPage() {
   const [copiedHighlights, setCopiedHighlights] = useState(false)
   const [copiedAll, setCopiedAll] = useState(false)
   const [highlightsError, setHighlightsError] = useState('')
+
+  const cacheKey = `bolao_highlights_${getBrtDate()}`
 
   async function loadRanking() {
     setLoadingRanking(true)
@@ -24,20 +29,34 @@ export default function ResumoPage() {
     setLoadingRanking(false)
   }
 
-  async function loadHighlights() {
+  async function loadHighlights(forceNew = false) {
     setLoadingHighlights(true)
     setHighlightsError('')
-    const res = await fetch('/api/daily-highlights')
+    const url = forceNew ? '/api/daily-highlights?force=true' : '/api/daily-highlights'
+    const res = await fetch(url)
     const data = await res.json()
     if (data.error) {
       setHighlightsError(data.error)
     } else {
-      setHighlightsText(data.text ?? '')
+      const text = data.text ?? ''
+      setHighlightsText(text)
+      setHighlightsCached(data.cached === true)
+      try { localStorage.setItem(cacheKey, text) } catch {}
     }
     setLoadingHighlights(false)
   }
 
-  useEffect(() => { loadRanking() }, [])
+  useEffect(() => {
+    loadRanking()
+    try {
+      const cached = localStorage.getItem(cacheKey)
+      if (cached) {
+        setHighlightsText(cached)
+        setHighlightsCached(true)
+      }
+    } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function copy(text: string, setter: (v: boolean) => void) {
     await navigator.clipboard.writeText(text)
@@ -92,20 +111,46 @@ export default function ResumoPage() {
               <span className="font-semibold text-sm">Destaques do Dia</span>
               <span className="text-xs text-gray-500">(gerado por IA)</span>
             </div>
-            <button
-              onClick={loadHighlights}
-              disabled={loadingHighlights}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 border border-yellow-500/30 rounded-lg text-xs font-medium transition-colors"
-            >
-              {loadingHighlights
-                ? <><Loader2 size={12} className="animate-spin" />Gerando...</>
-                : <><Sparkles size={12} />Gerar comentários</>
-              }
-            </button>
+            <div className="flex items-center gap-2">
+              {highlightsText && !loadingHighlights && (
+                <button
+                  onClick={() => loadHighlights(true)}
+                  disabled={loadingHighlights}
+                  title="Vai usar créditos da API"
+                  className="flex items-center gap-1 px-2 py-1.5 text-gray-500 hover:text-gray-300 border border-gray-700 hover:border-gray-600 rounded-lg text-xs transition-colors"
+                >
+                  <Zap size={11} />
+                  Regenerar
+                </button>
+              )}
+              {!highlightsText && (
+                <button
+                  onClick={() => loadHighlights()}
+                  disabled={loadingHighlights}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 border border-yellow-500/30 rounded-lg text-xs font-medium transition-colors"
+                >
+                  {loadingHighlights
+                    ? <><Loader2 size={12} className="animate-spin" />Gerando...</>
+                    : <><Sparkles size={12} />Gerar comentários</>
+                  }
+                </button>
+              )}
+              {loadingHighlights && (
+                <span className="flex items-center gap-1.5 px-3 py-1.5 text-yellow-400 text-xs">
+                  <Loader2 size={12} className="animate-spin" />Gerando...
+                </span>
+              )}
+            </div>
           </div>
 
           {highlightsError && (
             <p className="text-red-400 text-sm">{highlightsError}</p>
+          )}
+
+          {highlightsCached && highlightsText && (
+            <p className="text-xs text-gray-600 mb-3">
+              Gerado hoje — clique em &quot;Regenerar&quot; para criar um novo estilo (usa créditos da API)
+            </p>
           )}
 
           {highlightsText ? (
@@ -124,7 +169,7 @@ export default function ResumoPage() {
             </>
           ) : !loadingHighlights && (
             <p className="text-gray-600 text-sm text-center py-4">
-              Clique em "Gerar comentários" para criar os destaques com IA
+              Clique em &quot;Gerar comentários&quot; para criar os destaques com IA
             </p>
           )}
         </div>

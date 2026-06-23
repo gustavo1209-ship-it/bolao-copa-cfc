@@ -10,24 +10,15 @@ export async function GET() {
   const today = brtNow.toISOString().slice(0, 10)
   const tomorrow = new Date(brtNow.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
-  // Último dia BRT que teve jogo finalizado
-  const { data: lastFinished } = await supabase
-    .from('matches')
-    .select('match_date')
-    .eq('status', 'finished')
-    .order('match_date', { ascending: false })
-    .limit(1)
-    .single()
-
-  const lastGameDay = lastFinished?.match_date
-    ? new Date(new Date(lastFinished.match_date).getTime() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
-    : null
+  const toBrtDate = (iso: string) =>
+    new Date(new Date(iso).getTime() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
   const [
     { data: current },
     { data: tomorrowMatches },
     { data: profiles },
-    { data: lastDayMatches },
+    { data: allFinishedMatches },
+    { data: allPredictions },
   ] = await Promise.all([
     supabase.from('standings').select('id, name, total_pts, rank').order('rank'),
     supabase.from('matches')
@@ -37,27 +28,53 @@ export async function GET() {
       .lte('match_date', tomorrow + 'T23:59:59-03:00')
       .order('match_date'),
     supabase.from('profiles').select('id, name'),
-    lastGameDay
-      ? supabase.from('matches')
-          .select('id')
-          .eq('status', 'finished')
-          .gte('match_date', lastGameDay + 'T00:00:00-03:00')
-          .lte('match_date', lastGameDay + 'T23:59:59-03:00')
-      : Promise.resolve({ data: [] as Array<{ id: string }> }),
+    supabase.from('matches').select('id, match_date').eq('status', 'finished').order('match_date'),
+    supabase.from('predictions').select('user_id, match_id, pts_total'),
   ])
 
-  // Pontos ganhos calculados diretamente dos palpites do último dia com jogo
-  const lastDayPtsByUser: Record<string, number> = {}
-  const lastDayMatchIds = (lastDayMatches ?? []).map(m => m.id)
-  if (lastDayMatchIds.length > 0) {
-    const { data: preds } = await supabase
-      .from('predictions')
-      .select('user_id, pts_total')
-      .in('match_id', lastDayMatchIds)
-    for (const pred of (preds ?? [])) {
-      lastDayPtsByUser[pred.user_id] = (lastDayPtsByUser[pred.user_id] ?? 0) + (pred.pts_total ?? 0)
+  // Mesma lógica do gráfico de evolução: pontos por dia → cumulativos → delta entre últimos 2 pontos
+  const matchDateMap: Record<string, string> = {}
+  for (const m of (allFinishedMatches ?? [])) {
+    matchDateMap[m.id] = toBrtDate(m.match_date)
+  }
+  const gameDays = [...new Set(Object.values(matchDateMap))].sort()
+
+  const dailyPts: Record<string, Record<string, number>> = {}
+  for (const pred of (allPredictions ?? [])) {
+    const date = matchDateMap[pred.match_id]
+    if (!date) continue
+    if (!dailyPts[pred.user_id]) dailyPts[pred.user_id] = {}
+    dailyPts[pred.user_id][date] = (dailyPts[pred.user_id][date] ?? 0) + (pred.pts_total ?? 0)
+  }
+
+  const userIds = (current ?? []).map(s => s.id)
+  const cumPts: Record<string, Record<string, number>> = {}
+  for (const userId of userIds) {
+    cumPts[userId] = {}
+    let running = 0
+    for (const day of gameDays) {
+      running += dailyPts[userId]?.[day] ?? 0
+      cumPts[userId][day] = running
     }
   }
+
+  const lastDay = gameDays[gameDays.length - 1] ?? null
+  const prevDay = gameDays[gameDays.length - 2] ?? null
+
+  // Delta entre o último e o penúltimo ponto do gráfico
+  const lastDayPtsByUser: Record<string, number> = {}
+  for (const userId of userIds) {
+    const cur = lastDay ? (cumPts[userId]?.[lastDay] ?? 0) : 0
+    const prev = prevDay ? (cumPts[userId]?.[prevDay] ?? 0) : 0
+    lastDayPtsByUser[userId] = cur - prev
+  }
+
+  // Rank no penúltimo ponto do gráfico (equivalente ao "antes de ontem")
+  const sortedByPrev = [...userIds].sort(
+    (a, b) => (prevDay ? (cumPts[b]?.[prevDay] ?? 0) : 0) - (prevDay ? (cumPts[a]?.[prevDay] ?? 0) : 0)
+  )
+  const prevRankMap: Record<string, number> = {}
+  sortedByPrev.forEach((userId, i) => { prevRankMap[userId] = i + 1 })
 
   // Participantes sem palpites para pelo menos um jogo de amanhã
   const missingNames: string[] = []
@@ -75,15 +92,6 @@ export async function GET() {
       if (missing) missingNames.push(p.name.split(' ')[0])
     }
   }
-
-  // Rank anterior = reordenar por (pts_atual - pts_ultimo_dia)
-  const prevPtsMap: Record<string, number> = {}
-  for (const s of (current ?? [])) {
-    prevPtsMap[s.id] = (s.total_pts ?? 0) - (lastDayPtsByUser[s.id] ?? 0)
-  }
-  const sortedByPrev = [...(current ?? [])].sort((a, b) => (prevPtsMap[b.id] ?? 0) - (prevPtsMap[a.id] ?? 0))
-  const prevRankMap: Record<string, number> = {}
-  sortedByPrev.forEach((s, i) => { prevRankMap[s.id] = i + 1 })
 
   const RANK_EMOJI = ['🥇', '🥈', '🥉']
   const dateLabel = brtNow.toLocaleDateString('pt-BR', {
@@ -124,21 +132,26 @@ export async function GET() {
     lines.push(`${rankEmoji} *${s.name}* · ${s.total_pts} pts${ptsStr}${movStr}`)
   }
 
-  // Jogos finalizados hoje
-  const { data: todayMatches } = await supabase
-    .from('matches')
-    .select('home_team, away_team, home_team_flag, away_team_flag, home_score, away_score')
-    .eq('status', 'finished')
-    .gte('match_date', today + 'T00:00:00-03:00')
-    .lte('match_date', today + 'T23:59:59-03:00')
-    .order('match_date')
+  // Jogos do último dia com partidas finalizadas
+  if (lastDay) {
+    const { data: lastDayMatchResults } = await supabase
+      .from('matches')
+      .select('home_team, away_team, home_team_flag, away_team_flag, home_score, away_score')
+      .eq('status', 'finished')
+      .gte('match_date', lastDay + 'T00:00:00-03:00')
+      .lte('match_date', lastDay + 'T23:59:59-03:00')
+      .order('match_date')
 
-  if (todayMatches && todayMatches.length > 0) {
-    lines.push('')
-    lines.push('⚽ *Jogos de hoje:*')
-    lines.push('')
-    for (const m of todayMatches) {
-      lines.push(`${m.home_team_flag ?? ''} ${m.home_team} *${m.home_score}–${m.away_score}* ${m.away_team} ${m.away_team_flag ?? ''}`)
+    if (lastDayMatchResults && lastDayMatchResults.length > 0) {
+      const lastDayLabel = lastDay === today
+        ? 'hoje'
+        : new Date(lastDay + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+      lines.push('')
+      lines.push(`⚽ *Jogos de ${lastDayLabel}:*`)
+      lines.push('')
+      for (const m of lastDayMatchResults) {
+        lines.push(`${m.home_team_flag ?? ''} ${m.home_team} *${m.home_score}–${m.away_score}* ${m.away_team} ${m.away_team_flag ?? ''}`)
+      }
     }
   }
 

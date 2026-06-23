@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import { Navbar } from '@/components/navbar'
 import { RankingTable } from '@/components/ranking-table'
 import { AutoRefresh } from '@/components/auto-refresh'
@@ -6,6 +7,9 @@ import { EvolutionChart } from '@/components/evolution-chart'
 import { type Standing } from '@/types'
 import { Trophy, TrendingUp } from 'lucide-react'
 import { getImagePath } from '@/lib/participant-images'
+
+const toBrtDate = (iso: string) =>
+  new Date(new Date(iso).getTime() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
 export default async function RankingPage() {
   const supabase = await createClient()
@@ -22,50 +26,44 @@ export default async function RankingPage() {
     .select('*')
     .order('total_pts', { ascending: false })
 
-  // Variação de ranking: calcula rank antes do último dia com jogos
-  // (mesma lógica do gráfico — sem depender de snapshots)
+  // Variação de ranking: mesma lógica do gráfico (delta entre últimos 2 pontos)
+  // Usa service client para ler todas as predictions sem RLS
   const rankChanges: Record<string, number> = {}
-  const { data: lastFinished } = await supabase
-    .from('matches')
-    .select('match_date')
-    .eq('status', 'finished')
-    .order('match_date', { ascending: false })
-    .limit(1)
-    .single()
+  if (standings?.length) {
+    const svc = createServiceClient()
+    const [{ data: allMatches }, { data: allPreds }] = await Promise.all([
+      svc.from('matches').select('id, match_date').eq('status', 'finished').order('match_date'),
+      svc.from('predictions').select('user_id, match_id, pts_total'),
+    ])
 
-  if (lastFinished?.match_date && standings?.length) {
-    const lastGameDay = new Date(new Date(lastFinished.match_date).getTime() - 3 * 60 * 60 * 1000)
-      .toISOString().slice(0, 10)
+    const matchDateMap: Record<string, string> = {}
+    for (const m of (allMatches ?? [])) matchDateMap[m.id] = toBrtDate(m.match_date)
 
-    const { data: lastDayMatches } = await supabase
-      .from('matches')
-      .select('id')
-      .eq('status', 'finished')
-      .gte('match_date', lastGameDay + 'T00:00:00-03:00')
-      .lte('match_date', lastGameDay + 'T23:59:59-03:00')
+    const gameDays = [...new Set(Object.values(matchDateMap))].sort()
+    const prevDay = gameDays[gameDays.length - 2] ?? null
 
-    const lastDayIds = (lastDayMatches ?? []).map(m => m.id)
-    if (lastDayIds.length > 0) {
-      const { data: preds } = await supabase
-        .from('predictions')
-        .select('user_id, pts_total')
-        .in('match_id', lastDayIds)
-
-      const lastDayPts: Record<string, number> = {}
-      for (const p of (preds ?? [])) {
-        lastDayPts[p.user_id] = (lastDayPts[p.user_id] ?? 0) + (p.pts_total ?? 0)
+    if (prevDay) {
+      const dailyPts: Record<string, Record<string, number>> = {}
+      for (const pred of (allPreds ?? [])) {
+        const date = matchDateMap[pred.match_id]
+        if (!date) continue
+        if (!dailyPts[pred.user_id]) dailyPts[pred.user_id] = {}
+        dailyPts[pred.user_id][date] = (dailyPts[pred.user_id][date] ?? 0) + (pred.pts_total ?? 0)
       }
 
-      // pts antes do último dia = pts atual − pts ganhos ontem
-      const prevPts: Record<string, number> = {}
+      const cumAtPrev: Record<string, number> = {}
       for (const s of standings) {
-        prevPts[s.id] = (s.total_pts ?? 0) - (lastDayPts[s.id] ?? 0)
+        let running = 0
+        for (const day of gameDays) {
+          if (day > prevDay) break
+          running += dailyPts[s.id]?.[day] ?? 0
+        }
+        cumAtPrev[s.id] = running
       }
 
-      // rank anterior = reordenar por prevPts
-      const sorted = [...standings].sort((a, b) => (prevPts[b.id] ?? 0) - (prevPts[a.id] ?? 0))
+      const sortedByPrev = [...standings].sort((a, b) => (cumAtPrev[b.id] ?? 0) - (cumAtPrev[a.id] ?? 0))
       const prevRank: Record<string, number> = {}
-      sorted.forEach((s, i) => { prevRank[s.id] = i + 1 })
+      sortedByPrev.forEach((s, i) => { prevRank[s.id] = i + 1 })
 
       for (const s of standings) {
         rankChanges[s.id] = (prevRank[s.id] ?? Number(s.rank)) - Number(s.rank)
