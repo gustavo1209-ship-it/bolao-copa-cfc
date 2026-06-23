@@ -149,7 +149,7 @@ ${jogosStr}
 `.trim()
 
   const PARTICIPANTE_FACTS = `
-- Henrique e Eduardo Bortolon são irmãos — explore essa rivalidade familiar de forma criativa e cruel, mas SEM usar a analogia dos irmãos Schumacher. Invente comparações novas a cada vez: duplas famosas da cultura pop, do futebol, da política, da história, da televisão — quanto mais inusitado e inesperado, melhor.
+- Nunca mencione que Henrique e Eduardo são irmãos.
 - Nunca repita a mesma piada ou referência duas vezes.
 `.trim()
 

@@ -31,7 +31,7 @@ export async function GET() {
       .select('id, home_team, away_team, home_team_flag, away_team_flag, home_score, away_score, match_date')
       .eq('status', 'finished')
       .gte('match_date', yesterday + 'T00:00:00-03:00')
-      .lt('match_date', today + 'T06:00:00-03:00')
+      .lte('match_date', yesterday + 'T23:59:59-03:00')
       .order('match_date'),
   ])
 

@@ -37,7 +37,7 @@ export default async function RankingPage() {
       .select('id')
       .eq('status', 'finished')
       .gte('match_date', yesterday + 'T00:00:00-03:00')
-      .lt('match_date', today + 'T06:00:00-03:00')
+      .lte('match_date', yesterday + 'T23:59:59-03:00')
 
     const sessionIds = (sessionMatches ?? []).map(m => m.id)
     if (sessionIds.length > 0) {
