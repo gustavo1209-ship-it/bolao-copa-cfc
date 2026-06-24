@@ -3,41 +3,50 @@ export const runtime = 'edge'
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 
+// Converte ISO UTC para objeto Date representando o horário BRT
+const toBrt = (iso: string) => new Date(new Date(iso).getTime() - 3 * 60 * 60 * 1000)
+
 export async function GET() {
   const supabase = createServiceClient()
 
-  const brtNow = new Date(Date.now() - 3 * 60 * 60 * 1000)
+  const brtNow = toBrt(new Date().toISOString())
   const today = brtNow.toISOString().slice(0, 10)
   const yesterday = new Date(brtNow.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const tomorrow = new Date(brtNow.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
-  // Sessão de ontem: jogos BRT de ontem + madrugada de hoje até 06:00 BRT
-  // Isso captura partidas de meia-noite (ex: 00:00 BRT dia seguinte) como parte do dia anterior
   const [
     { data: current },
     { data: tomorrowMatches },
     { data: profiles },
-    { data: sessionMatches },
+    { data: recentRaw },
   ] = await Promise.all([
     supabase.from('standings').select('id, name, total_pts, rank').order('rank'),
     supabase.from('matches')
       .select('id, home_team, away_team, home_team_flag, away_team_flag, match_date')
       .eq('status', 'scheduled')
-      .gte('match_date', tomorrow + 'T00:00:00-03:00')
-      .lte('match_date', tomorrow + 'T23:59:59-03:00')
+      .gte('match_date', tomorrow + 'T03:00:00Z')   // amanhã 00:00 BRT em UTC
+      .lte('match_date', tomorrow + 'T26:59:59Z')   // amanhã 23:59 BRT em UTC
       .order('match_date'),
     supabase.from('profiles').select('id, name'),
+    // Busca últimos 5 dias em UTC para filtrar em JS
     supabase.from('matches')
       .select('id, home_team, away_team, home_team_flag, away_team_flag, home_score, away_score, match_date')
       .eq('status', 'finished')
-      .gte('match_date', yesterday + 'T00:00:00-03:00')
-      .lt('match_date', today + 'T06:00:00-03:00')
+      .gte('match_date', new Date(brtNow.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString())
       .order('match_date'),
   ])
 
+  // Filtra em JS: data BRT = ontem, OU data BRT = hoje com hora < 06:00 (jogos de madrugada)
+  const sessionMatches = (recentRaw ?? []).filter(m => {
+    const brt = toBrt(m.match_date)
+    const brtDate = brt.toISOString().slice(0, 10)
+    const brtHour = brt.getUTCHours()
+    return brtDate === yesterday || (brtDate === today && brtHour < 6)
+  })
+
   // Pontos da sessão de ontem por participante
   const sessionPtsByUser: Record<string, number> = {}
-  const sessionMatchIds = (sessionMatches ?? []).map(m => m.id)
+  const sessionMatchIds = sessionMatches.map(m => m.id)
   if (sessionMatchIds.length > 0) {
     const { data: preds } = await supabase
       .from('predictions')
@@ -82,8 +91,8 @@ export async function GET() {
   const lines: string[] = []
 
   if (missingNames.length > 0) {
-    const tomorrowLabel = new Date(tomorrow + 'T12:00:00').toLocaleDateString('pt-BR', {
-      day: '2-digit', month: '2-digit',
+    const tomorrowLabel = new Date(tomorrow + 'T15:00:00Z').toLocaleDateString('pt-BR', {
+      day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo',
     })
     lines.push(`⚠️ *Sem palpites para ${tomorrowLabel}:*`)
     for (const name of missingNames) lines.push(`❌ ${name}`)
@@ -114,9 +123,9 @@ export async function GET() {
   }
 
   // Jogos da sessão de ontem
-  if (sessionMatches && sessionMatches.length > 0) {
-    const yesterdayLabel = new Date(yesterday + 'T12:00:00').toLocaleDateString('pt-BR', {
-      day: '2-digit', month: '2-digit',
+  if (sessionMatches.length > 0) {
+    const yesterdayLabel = toBrt(yesterday + 'T15:00:00Z').toLocaleDateString('pt-BR', {
+      day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo',
     })
     lines.push('')
     lines.push(`⚽ *Jogos de ${yesterdayLabel}:*`)

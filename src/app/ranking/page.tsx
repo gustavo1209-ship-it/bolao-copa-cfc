@@ -23,23 +23,28 @@ export default async function RankingPage() {
     .select('*')
     .order('total_pts', { ascending: false })
 
-  // Variação de ranking baseada na sessão de ontem BRT (inclui jogos de madrugada até 06:00 BRT)
-  // Usa service client para ler todas as predictions sem RLS
+  // Variação de ranking: sessão de ontem BRT filtrada em JS (evita ambiguidade de timezone no edge)
   const rankChanges: Record<string, number> = {}
   if (standings?.length) {
-    const brtNow = new Date(Date.now() - 3 * 60 * 60 * 1000)
+    const toBrt = (iso: string) => new Date(new Date(iso).getTime() - 3 * 60 * 60 * 1000)
+    const brtNow = toBrt(new Date().toISOString())
     const today = brtNow.toISOString().slice(0, 10)
     const yesterday = new Date(brtNow.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
     const svc = createServiceClient()
-    const { data: sessionMatches } = await svc
+    const { data: recentRaw } = await svc
       .from('matches')
-      .select('id')
+      .select('id, match_date')
       .eq('status', 'finished')
-      .gte('match_date', yesterday + 'T00:00:00-03:00')
-      .lt('match_date', today + 'T06:00:00-03:00')
+      .gte('match_date', new Date(brtNow.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString())
 
-    const sessionIds = (sessionMatches ?? []).map(m => m.id)
+    const sessionIds = (recentRaw ?? []).filter(m => {
+      const brt = toBrt(m.match_date)
+      const brtDate = brt.toISOString().slice(0, 10)
+      const brtHour = brt.getUTCHours()
+      return brtDate === yesterday || (brtDate === today && brtHour < 6)
+    }).map(m => m.id)
+
     if (sessionIds.length > 0) {
       const { data: preds } = await svc
         .from('predictions')
