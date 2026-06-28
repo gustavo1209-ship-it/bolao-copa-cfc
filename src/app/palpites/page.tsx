@@ -19,16 +19,18 @@ export default async function PalpitesPage() {
 
   const { data: myPredictions } = await supabase
     .from('predictions')
-    .select('match_id, home_score_prediction, away_score_prediction, pts_total')
+    .select('match_id, home_score_prediction, away_score_prediction, penalty_winner_prediction, pts_total, pts_penalty_winner')
     .eq('user_id', user.id)
 
   // Mapear palpites por match_id para passar ao client component
-  const predMap: Record<string, { home: number; away: number; pts_total: number }> = {}
+  const predMap: Record<string, { home: number; away: number; pts_total: number; penalty_winner_prediction: string | null; pts_penalty_winner: number }> = {}
   for (const p of myPredictions ?? []) {
     predMap[p.match_id] = {
       home: p.home_score_prediction,
       away: p.away_score_prediction,
       pts_total: p.pts_total,
+      penalty_winner_prediction: p.penalty_winner_prediction ?? null,
+      pts_penalty_winner: p.pts_penalty_winner ?? 0,
     }
   }
 

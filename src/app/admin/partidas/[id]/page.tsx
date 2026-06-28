@@ -36,6 +36,7 @@ export default function EditarPartidaPage({ params }: Props) {
   const [sofascoreId, setSofascoreId] = useState('')
   const [homeScore, setHomeScore] = useState('')
   const [awayScore, setAwayScore] = useState('')
+  const [penaltyWinner, setPenaltyWinner] = useState('')
   const [status, setStatus] = useState<'scheduled' | 'in_progress' | 'finished'>('scheduled')
 
   useEffect(() => {
@@ -58,6 +59,7 @@ export default function EditarPartidaPage({ params }: Props) {
         setSofascoreId(data.sofascore_id?.toString() ?? '')
         setHomeScore(data.home_score?.toString() ?? '')
         setAwayScore(data.away_score?.toString() ?? '')
+        setPenaltyWinner(data.penalty_winner ?? '')
         setStatus(data.status)
         // Converte para Brasília (UTC-3) para exibir no input datetime-local
         const spMs = new Date(data.match_date).getTime() - 3 * 60 * 60 * 1000
@@ -97,6 +99,7 @@ export default function EditarPartidaPage({ params }: Props) {
       updates.home_score = parseInt(homeScore)
       updates.away_score = parseInt(awayScore)
     }
+    updates.penalty_winner = penaltyWinner || null
 
     const { error: updateError } = await supabase.from('matches').update(updates).eq('id', matchId)
 
@@ -305,6 +308,50 @@ export default function EditarPartidaPage({ params }: Props) {
                   <input type="number" min="0" value={awayScore} onChange={e => { setAwayScore(e.target.value); if (e.target.value !== '' && homeScore !== '') setStatus('finished') }} placeholder="0" className={inputCls} />
                 </div>
               </div>
+
+              {/* Vencedor nos pênaltis — só para fases de mata-mata */}
+              {stage !== 'group' && (
+                <div className="mt-3 p-3 bg-blue-900/10 border border-blue-500/20 rounded-xl">
+                  <label className={labelCls}>Vencedor nos pênaltis (se houve)</label>
+                  <div className="flex gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setPenaltyWinner(prev => prev === homeTeam ? '' : homeTeam)}
+                      className={`px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                        penaltyWinner === homeTeam
+                          ? 'bg-blue-600 border-blue-500 text-white'
+                          : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-600'
+                      }`}
+                    >
+                      {homeTeam || 'Casa'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPenaltyWinner(prev => prev === awayTeam ? '' : awayTeam)}
+                      className={`px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                        penaltyWinner === awayTeam
+                          ? 'bg-blue-600 border-blue-500 text-white'
+                          : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-600'
+                      }`}
+                    >
+                      {awayTeam || 'Visitante'}
+                    </button>
+                    {penaltyWinner && (
+                      <button
+                        type="button"
+                        onClick={() => setPenaltyWinner('')}
+                        className="px-3 py-2 rounded-lg text-sm text-gray-500 border border-gray-700 hover:border-red-500/50 hover:text-red-400 transition-colors"
+                      >
+                        Limpar
+                      </button>
+                    )}
+                  </div>
+                  {penaltyWinner && (
+                    <p className="text-xs text-blue-300 mt-2">🥅 {penaltyWinner} venceu nos pênaltis (+3 pts para quem acertou)</p>
+                  )}
+                </div>
+              )}
+
               <div className="mt-3">
                 <label className={labelCls}>Status</label>
                 <select value={status} onChange={e => setStatus(e.target.value as typeof status)} className={inputCls}>

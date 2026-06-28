@@ -6,6 +6,8 @@ interface ScoreInput {
   homeActual: number
   awayActual: number
   stage: Stage
+  penaltyWinnerPrediction?: string | null
+  penaltyWinnerActual?: string | null
 }
 
 export interface ScoreBreakdown {
@@ -13,11 +15,13 @@ export interface ScoreBreakdown {
   ptsHomeGoals: number
   ptsAwayGoals: number
   ptsExactBonus: number
+  ptsPenaltyWinner: number
   ptsTotal: number
 }
 
 export function calculatePoints(input: ScoreInput): ScoreBreakdown {
-  const { homePrediction, awayPrediction, homeActual, awayActual, stage } = input
+  const { homePrediction, awayPrediction, homeActual, awayActual, stage,
+          penaltyWinnerPrediction, penaltyWinnerActual } = input
   const multiplier = STAGE_MULTIPLIERS[stage]
 
   const predictedResult = Math.sign(homePrediction - awayPrediction)
@@ -33,11 +37,17 @@ export function calculatePoints(input: ScoreInput): ScoreBreakdown {
   const ptsAwayGoals = correctAway ? 1 * multiplier : 0
   const ptsExactBonus = exactScore ? 3 * multiplier : 0
 
+  // +3 fixos se acertou o vencedor nos pênaltis (independe de ter previsto empate)
+  const ptsPenaltyWinner =
+    penaltyWinnerPrediction && penaltyWinnerActual &&
+    penaltyWinnerPrediction === penaltyWinnerActual ? 3 : 0
+
   return {
     ptsResult,
     ptsHomeGoals,
     ptsAwayGoals,
     ptsExactBonus,
-    ptsTotal: ptsResult + ptsHomeGoals + ptsAwayGoals + ptsExactBonus,
+    ptsPenaltyWinner,
+    ptsTotal: ptsResult + ptsHomeGoals + ptsAwayGoals + ptsExactBonus + ptsPenaltyWinner,
   }
 }

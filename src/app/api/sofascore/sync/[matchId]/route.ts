@@ -83,8 +83,8 @@ export async function POST(request: Request, { params }: RouteProps) {
     }).eq('id', matchId)
   }
 
-  // Buscar a partida atualizada para pegar a fase
-  const { data: finalMatch } = await supabase.from('matches').select('stage').eq('id', matchId).single()
+  // Buscar a partida atualizada para pegar a fase e penalty_winner
+  const { data: finalMatch } = await supabase.from('matches').select('stage, penalty_winner').eq('id', matchId).single()
   if (!finalMatch) return NextResponse.json({ error: 'Partida não encontrada.' }, { status: 404 })
 
   // Buscar todos os palpites desta partida
@@ -102,6 +102,8 @@ export async function POST(request: Request, { params }: RouteProps) {
         homeActual: homeScore,
         awayActual: awayScore,
         stage: finalMatch.stage as Stage,
+        penaltyWinnerPrediction: pred.penalty_winner_prediction,
+        penaltyWinnerActual: finalMatch.penalty_winner,
       })
 
       await supabase.from('predictions').update({
@@ -109,6 +111,7 @@ export async function POST(request: Request, { params }: RouteProps) {
         pts_home_goals: breakdown.ptsHomeGoals,
         pts_away_goals: breakdown.ptsAwayGoals,
         pts_exact_bonus: breakdown.ptsExactBonus,
+        pts_penalty_winner: breakdown.ptsPenaltyWinner,
         pts_total: breakdown.ptsTotal,
         updated_at: new Date().toISOString(),
       }).eq('id', pred.id)

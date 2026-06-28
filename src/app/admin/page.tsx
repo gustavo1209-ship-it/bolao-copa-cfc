@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { Navbar } from '@/components/navbar'
+import { SyncPhaseButton } from '@/components/sync-phase-button'
 import { Settings, Calendar, Users, RefreshCw, MessageCircle } from 'lucide-react'
 
 export default async function AdminPage() {
@@ -71,6 +72,8 @@ export default async function AdminPage() {
             <h2 className="font-bold text-lg mb-1 group-hover:text-green-400 transition-colors">Resumo do Dia</h2>
             <p className="text-sm text-gray-500">Gere o texto com ranking e variações para enviar no WhatsApp</p>
           </Link>
+
+          <SyncPhaseButton />
         </div>
 
         <div className="mt-6 bg-blue-900/20 border border-blue-500/20 rounded-xl p-4">

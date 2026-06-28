@@ -10,15 +10,25 @@ import { CheckCircle, Lock, Loader2, Minus, Plus, Save, AlertCircle, Trophy } fr
 interface PredictionData {
   home: number | null
   away: number | null
+  penaltyWinner: string | null
   pts_total?: number
+  pts_penalty_winner?: number
   saved: boolean
 }
 
 type GlobalSaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 
+interface InitialPrediction {
+  home: number
+  away: number
+  pts_total: number
+  penalty_winner_prediction: string | null
+  pts_penalty_winner: number
+}
+
 interface PalpitesInlineProps {
   matches: Match[]
-  initialPredictions: Record<string, { home: number; away: number; pts_total: number }>
+  initialPredictions: Record<string, InitialPrediction>
   userId: string
 }
 
@@ -28,8 +38,15 @@ export function PalpitesInline({ matches, initialPredictions, userId }: Palpites
     for (const m of matches) {
       const existing = initialPredictions[m.id]
       state[m.id] = existing
-        ? { home: existing.home, away: existing.away, pts_total: existing.pts_total, saved: true }
-        : { home: null, away: null, saved: false }
+        ? {
+            home: existing.home,
+            away: existing.away,
+            penaltyWinner: existing.penalty_winner_prediction,
+            pts_total: existing.pts_total,
+            pts_penalty_winner: existing.pts_penalty_winner,
+            saved: true,
+          }
+        : { home: null, away: null, penaltyWinner: null, saved: false }
     }
     return state
   })
@@ -68,7 +85,15 @@ export function PalpitesInline({ matches, initialPredictions, userId }: Palpites
     })
   }
 
-  // Partidas abertas com palpite preenchido mas não salvo (ambos os placares precisam estar definidos)
+  function togglePenaltyWinner(matchId: string, team: string) {
+    setPreds(prev => {
+      const current = prev[matchId]
+      const newVal = current.penaltyWinner === team ? null : team
+      return { ...prev, [matchId]: { ...current, penaltyWinner: newVal, saved: false } }
+    })
+  }
+
+  // Partidas abertas com palpite preenchido mas não salvo
   const unsavedMatches = matches.filter(m => {
     if (isLocked(m) || m.status === 'finished') return false
     const pred = preds[m.id]
@@ -91,6 +116,7 @@ export function PalpitesInline({ matches, initialPredictions, userId }: Palpites
         match_id: m.id,
         home_score_prediction: pred.home,
         away_score_prediction: pred.away,
+        penalty_winner_prediction: pred.penaltyWinner ?? null,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id,match_id' })
 
@@ -130,7 +156,8 @@ export function PalpitesInline({ matches, initialPredictions, userId }: Palpites
         if (!stageMatches) return null
 
         const multiplier = STAGE_MULTIPLIERS[stage]
-        const maxPts = 8 * multiplier
+        const isKnockout = stage !== 'group'
+        const maxPts = isKnockout ? 8 * multiplier + 3 : 8 * multiplier
 
         const subGroups = stage === 'group'
           ? [...new Set(stageMatches.map(m => m.group_name))].sort() as string[]
@@ -162,6 +189,10 @@ export function PalpitesInline({ matches, initialPredictions, userId }: Palpites
                       const locked = isLocked(m)
                       const finished = m.status === 'finished'
                       const hasPrediction = initialPredictions[m.id] !== undefined
+
+                      const savedPenalty = initialPredictions[m.id]?.penalty_winner_prediction ?? null
+                      const actualPenalty = m.penalty_winner ?? null
+                      const penaltyPts = initialPredictions[m.id]?.pts_penalty_winner ?? 0
 
                       return (
                         <div
@@ -264,8 +295,37 @@ export function PalpitesInline({ matches, initialPredictions, userId }: Palpites
                             </div>
                           </div>
 
-                          {/* Linha 2: data + palpite/pts (jogo finalizado) */}
-                          <div className="flex items-center justify-between mt-1.5 ml-7">
+                          {/* Seleção de pênaltis — apenas mata-mata, jogo não encerrado */}
+                          {isKnockout && !locked && (
+                            <div className="ml-7 mt-2 flex items-center gap-2 flex-wrap">
+                              <span className="text-xs text-gray-500 shrink-0">Pênaltis:</span>
+                              <button
+                                onClick={() => togglePenaltyWinner(m.id, m.home_team)}
+                                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                                  pred?.penaltyWinner === m.home_team
+                                    ? 'bg-orange-500/20 border-orange-500 text-orange-300'
+                                    : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-600'
+                                }`}
+                              >
+                                <FlagImage flag={m.home_team_flag} size={14} />
+                                {m.home_team}
+                              </button>
+                              <button
+                                onClick={() => togglePenaltyWinner(m.id, m.away_team)}
+                                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                                  pred?.penaltyWinner === m.away_team
+                                    ? 'bg-orange-500/20 border-orange-500 text-orange-300'
+                                    : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-600'
+                                }`}
+                              >
+                                <FlagImage flag={m.away_team_flag} size={14} />
+                                {m.away_team}
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Linha 2: data + palpite/pts */}
+                          <div className="flex items-center justify-between mt-1.5 ml-7 flex-wrap gap-y-0.5">
                             <span className="text-xs text-gray-600">
                               {new Date(m.match_date).toLocaleDateString('pt-BR', {
                                 weekday: 'short', day: '2-digit', month: 'short',
@@ -274,19 +334,36 @@ export function PalpitesInline({ matches, initialPredictions, userId }: Palpites
                               })}
                             </span>
 
-                            {finished && hasPrediction && (
-                              <span className="text-xs ml-2">
-                                <span className="text-gray-500">Palpite: </span>
-                                <span className={`font-medium ${
-                                  initialPredictions[m.id]?.pts_total > 0 ? 'text-orange-400' : 'text-gray-500'
-                                }`}>
-                                  {initialPredictions[m.id]?.home}–{initialPredictions[m.id]?.away}
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {/* Palpite de placar finalizado */}
+                              {finished && hasPrediction && (
+                                <span className="text-xs">
+                                  <span className="text-gray-500">Palpite: </span>
+                                  <span className={`font-medium ${
+                                    initialPredictions[m.id]?.pts_total > 0 ? 'text-orange-400' : 'text-gray-500'
+                                  }`}>
+                                    {initialPredictions[m.id]?.home}–{initialPredictions[m.id]?.away}
+                                  </span>
+                                  {initialPredictions[m.id]?.pts_total > 0 && (
+                                    <span className="text-green-400 ml-1">+{initialPredictions[m.id].pts_total}</span>
+                                  )}
                                 </span>
-                                {initialPredictions[m.id]?.pts_total > 0 && (
-                                  <span className="text-green-400 ml-1">+{initialPredictions[m.id].pts_total}</span>
-                                )}
-                              </span>
-                            )}
+                              )}
+
+                              {/* Palpite de pênalti locked (ainda não finalizado) */}
+                              {isKnockout && locked && !finished && savedPenalty && (
+                                <span className="text-xs text-gray-500">
+                                  🥅 <span className="text-gray-400">{savedPenalty}</span>
+                                </span>
+                              )}
+
+                              {/* Resultado de pênalti finalizado */}
+                              {isKnockout && finished && actualPenalty && savedPenalty && (
+                                <span className={`text-xs font-medium ${penaltyPts > 0 ? 'text-green-400' : 'text-gray-600'}`}>
+                                  🥅 {savedPenalty} {penaltyPts > 0 ? `+${penaltyPts}` : '✗'}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       )

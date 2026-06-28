@@ -30,6 +30,7 @@ export interface Match {
   group_name: string | null
   status: MatchStatus
   sofascore_id: number | null
+  penalty_winner: string | null
   created_at: string
 }
 
@@ -39,10 +40,12 @@ export interface Prediction {
   match_id: string
   home_score_prediction: number
   away_score_prediction: number
+  penalty_winner_prediction: string | null
   pts_result: number
   pts_home_goals: number
   pts_away_goals: number
   pts_exact_bonus: number
+  pts_penalty_winner: number
   pts_total: number
   created_at: string
   updated_at: string
