@@ -1,9 +1,12 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import { Navbar } from '@/components/navbar'
 import { StageBadge } from '@/components/stage-badge'
 import { FlagImage } from '@/components/flag-image'
 import { type Match, type Stage, STAGE_ORDER } from '@/types'
+
+export const dynamic = 'force-dynamic'
 
 interface PredCell {
   home: number
@@ -20,6 +23,8 @@ export default async function CompararPage() {
 
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
 
+  const serviceClient = createServiceClient()
+
   const [
     { data: matches },
     { data: profiles },
@@ -27,7 +32,7 @@ export default async function CompararPage() {
   ] = await Promise.all([
     supabase.from('matches').select('*').order('match_date', { ascending: true }),
     supabase.from('profiles').select('id, name').order('name', { ascending: true }),
-    supabase.from('predictions').select('user_id, match_id, home_score_prediction, away_score_prediction, pts_total, pts_exact_bonus, pts_result').limit(5000),
+    serviceClient.from('predictions').select('user_id, match_id, home_score_prediction, away_score_prediction, pts_total, pts_exact_bonus, pts_result').limit(5000),
   ])
 
   // predMap[match_id][user_id] = PredCell
