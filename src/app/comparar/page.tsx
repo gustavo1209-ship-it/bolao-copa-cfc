@@ -27,7 +27,7 @@ export default async function CompararPage() {
   ] = await Promise.all([
     supabase.from('matches').select('*').order('match_date', { ascending: true }),
     supabase.from('profiles').select('id, name').order('name', { ascending: true }),
-    supabase.from('predictions').select('user_id, match_id, home_score_prediction, away_score_prediction, pts_total, pts_exact_bonus, pts_result'),
+    supabase.from('predictions').select('user_id, match_id, home_score_prediction, away_score_prediction, pts_total, pts_exact_bonus, pts_result').limit(5000),
   ])
 
   // predMap[match_id][user_id] = PredCell
