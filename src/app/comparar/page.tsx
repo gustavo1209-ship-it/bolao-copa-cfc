@@ -25,14 +25,32 @@ export default async function CompararPage() {
 
   const serviceClient = createServiceClient()
 
+  // Busca predictions com paginação — Supabase tem hard limit de 1000 rows por página
+  async function fetchAllPredictions() {
+    const PAGE = 1000
+    const results: { user_id: string; match_id: string; home_score_prediction: number; away_score_prediction: number; pts_total: number; pts_exact_bonus: number; pts_result: number }[] = []
+    let page = 0
+    while (true) {
+      const { data } = await serviceClient
+        .from('predictions')
+        .select('user_id, match_id, home_score_prediction, away_score_prediction, pts_total, pts_exact_bonus, pts_result')
+        .range(page * PAGE, (page + 1) * PAGE - 1)
+      if (!data || data.length === 0) break
+      results.push(...data)
+      if (data.length < PAGE) break
+      page++
+    }
+    return results
+  }
+
   const [
     { data: matches },
     { data: profiles },
-    { data: allPredictions },
+    allPredictions,
   ] = await Promise.all([
     supabase.from('matches').select('*').order('match_date', { ascending: true }),
     supabase.from('profiles').select('id, name').order('name', { ascending: true }),
-    serviceClient.from('predictions').select('user_id, match_id, home_score_prediction, away_score_prediction, pts_total, pts_exact_bonus, pts_result').limit(5000),
+    fetchAllPredictions(),
   ])
 
   // predMap[match_id][user_id] = PredCell
