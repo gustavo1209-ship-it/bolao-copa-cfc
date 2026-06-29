@@ -136,5 +136,8 @@ export async function GET() {
   }
 
   const text = lines.join('\n')
-  return NextResponse.json({ text, date: today, missingCount: missingNames.length })
+  return NextResponse.json(
+    { text, date: today, missingCount: missingNames.length },
+    { headers: { 'Cache-Control': 'no-store' } }
+  )
 }
