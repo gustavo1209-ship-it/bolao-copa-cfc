@@ -14,6 +14,8 @@ interface PredCell {
   pts_total: number
   pts_exact_bonus: number
   pts_result: number
+  pts_penalty_winner: number
+  penalty_winner_prediction: string | null
 }
 
 export default async function CompararPage() {
@@ -28,12 +30,12 @@ export default async function CompararPage() {
   // Busca predictions com paginação — Supabase tem hard limit de 1000 rows por página
   async function fetchAllPredictions() {
     const PAGE = 1000
-    const results: { user_id: string; match_id: string; home_score_prediction: number; away_score_prediction: number; pts_total: number; pts_exact_bonus: number; pts_result: number }[] = []
+    const results: { user_id: string; match_id: string; home_score_prediction: number; away_score_prediction: number; pts_total: number; pts_exact_bonus: number; pts_result: number; pts_penalty_winner: number; penalty_winner_prediction: string | null }[] = []
     let page = 0
     while (true) {
       const { data } = await serviceClient
         .from('predictions')
-        .select('user_id, match_id, home_score_prediction, away_score_prediction, pts_total, pts_exact_bonus, pts_result')
+        .select('user_id, match_id, home_score_prediction, away_score_prediction, pts_total, pts_exact_bonus, pts_result, pts_penalty_winner, penalty_winner_prediction')
         .range(page * PAGE, (page + 1) * PAGE - 1)
       if (!data || data.length === 0) break
       results.push(...data)
@@ -63,6 +65,8 @@ export default async function CompararPage() {
       pts_total: p.pts_total,
       pts_exact_bonus: p.pts_exact_bonus,
       pts_result: p.pts_result,
+      pts_penalty_winner: p.pts_penalty_winner,
+      penalty_winner_prediction: p.penalty_winner_prediction,
     }
   }
 
@@ -203,6 +207,7 @@ export default async function CompararPage() {
                                 {players.map(p => {
                                   const pred = predMap[m.id]?.[p.id]
                                   const isMe = p.id === user.id
+                                  const hasPenalty = m.stage !== 'group'
 
                                   let cellClass = 'text-gray-600'
                                   let label = '–'
@@ -224,6 +229,14 @@ export default async function CompararPage() {
                                     }
                                   }
 
+                                  const penaltyPred = pred?.penalty_winner_prediction ?? null
+                                  let penaltyClass = 'text-gray-500'
+                                  if (finished && m.penalty_winner) {
+                                    penaltyClass = penaltyPred === m.penalty_winner
+                                      ? 'text-green-400 font-medium'
+                                      : penaltyPred ? 'text-gray-500' : 'text-gray-600'
+                                  }
+
                                   return (
                                     <td
                                       key={p.id}
@@ -235,9 +248,19 @@ export default async function CompararPage() {
                                         {label}
                                         {badge && <span className="ml-0.5">{badge}</span>}
                                       </span>
+                                      {hasPenalty && (
+                                        <div className={`text-[10px] mt-0.5 ${penaltyClass}`}>
+                                          {penaltyPred
+                                            ? `🏆 ${penaltyPred.split(' ')[0]}`
+                                            : finished && m.penalty_winner ? '–' : ''}
+                                        </div>
+                                      )}
                                       {finished && pred && pred.pts_total > 0 && (
                                         <div className="text-gray-600 text-[10px] mt-0.5">
                                           +{pred.pts_total}
+                                          {pred.pts_penalty_winner > 0 && (
+                                            <span className="text-green-600"> (+{pred.pts_penalty_winner}p)</span>
+                                          )}
                                         </div>
                                       )}
                                     </td>

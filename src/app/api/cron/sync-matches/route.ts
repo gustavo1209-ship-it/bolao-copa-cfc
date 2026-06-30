@@ -81,7 +81,7 @@ export async function GET(request: Request) {
   const cutoff = new Date(Date.now() - 85 * 60 * 1000).toISOString()
   const { data: pending } = await supabase
     .from('matches')
-    .select('id, stage, home_team, away_team, match_date')
+    .select('id, stage, home_team, away_team, match_date, penalty_winner')
     .neq('status', 'finished')
     .lt('match_date', cutoff)
 
@@ -158,7 +158,7 @@ export async function GET(request: Request) {
 
       const { data: preds } = await supabase
         .from('predictions')
-        .select('id, home_score_prediction, away_score_prediction')
+        .select('id, home_score_prediction, away_score_prediction, penalty_winner_prediction')
         .eq('match_id', match!.id)
 
       for (const pred of (preds ?? [])) {
@@ -168,12 +168,15 @@ export async function GET(request: Request) {
           homeActual: homeScore,
           awayActual: awayScore,
           stage: match!.stage as Stage,
+          penaltyWinnerPrediction: pred.penalty_winner_prediction,
+          penaltyWinnerActual: match!.penalty_winner ?? null,
         })
         await supabase.from('predictions').update({
           pts_result: pts.ptsResult,
           pts_home_goals: pts.ptsHomeGoals,
           pts_away_goals: pts.ptsAwayGoals,
           pts_exact_bonus: pts.ptsExactBonus,
+          pts_penalty_winner: pts.ptsPenaltyWinner,
           pts_total: pts.ptsTotal,
           updated_at: new Date().toISOString(),
         }).eq('id', pred.id)
@@ -187,7 +190,7 @@ export async function GET(request: Request) {
   let recalculated = 0
   const { data: finished } = await supabase
     .from('matches')
-    .select('id, stage, home_score, away_score')
+    .select('id, stage, home_score, away_score, penalty_winner')
     .eq('status', 'finished')
     .not('home_score', 'is', null)
     .not('away_score', 'is', null)
@@ -195,10 +198,16 @@ export async function GET(request: Request) {
   for (const match of (finished ?? [])) {
     const { data: preds } = await supabase
       .from('predictions')
-      .select('id, home_score_prediction, away_score_prediction, pts_total')
+      .select('id, home_score_prediction, away_score_prediction, pts_total, penalty_winner_prediction, pts_penalty_winner')
       .eq('match_id', match.id)
 
-    if (!preds?.length || !preds.some(p => p.pts_total === 0)) continue
+    if (!preds?.length) continue
+
+    const hasMissingPts = preds.some(p => p.pts_total === 0)
+    const hasMissingPenaltyPts = match.penalty_winner != null && preds.some(p =>
+      p.penalty_winner_prediction === match.penalty_winner && p.pts_penalty_winner === 0
+    )
+    if (!hasMissingPts && !hasMissingPenaltyPts) continue
 
     for (const pred of preds) {
       const pts = calculatePoints({
@@ -207,12 +216,15 @@ export async function GET(request: Request) {
         homeActual: match.home_score as number,
         awayActual: match.away_score as number,
         stage: match.stage as Stage,
+        penaltyWinnerPrediction: pred.penalty_winner_prediction,
+        penaltyWinnerActual: match.penalty_winner ?? null,
       })
       await supabase.from('predictions').update({
         pts_result: pts.ptsResult,
         pts_home_goals: pts.ptsHomeGoals,
         pts_away_goals: pts.ptsAwayGoals,
         pts_exact_bonus: pts.ptsExactBonus,
+        pts_penalty_winner: pts.ptsPenaltyWinner,
         pts_total: pts.ptsTotal,
         updated_at: new Date().toISOString(),
       }).eq('id', pred.id)
