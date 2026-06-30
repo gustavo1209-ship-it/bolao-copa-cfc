@@ -19,7 +19,7 @@ export async function GET() {
   const [{ data: matches }, { data: predictions }, { data: profiles }, { data: standings }] =
     await Promise.all([
       supabase.from('matches').select('id, match_date').eq('status', 'finished').order('match_date'),
-      supabase.from('predictions').select('user_id, match_id, pts_total'),
+      supabase.from('predictions').select('user_id, match_id, pts_total').limit(10000),
       supabase.from('profiles').select('id, name'),
       supabase.from('standings').select('id, rank').order('rank'),
     ])
