@@ -251,7 +251,7 @@ export default async function CompararPage() {
                                       {hasPenalty && (
                                         <div className={`text-[10px] mt-0.5 ${penaltyClass}`}>
                                           {penaltyPred
-                                            ? `🏆 ${penaltyPred.split(' ')[0]}`
+                                            ? penaltyPred.split(' ')[0]
                                             : finished && m.penalty_winner ? '–' : ''}
                                         </div>
                                       )}
