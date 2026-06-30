@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 
+export const dynamic = 'force-dynamic'
+
 const COLORS = [
   '#f97316', '#3b82f6', '#22c55e', '#a855f7', '#ec4899',
   '#eab308', '#06b6d4', '#ef4444', '#14b8a6', '#f59e0b',
@@ -80,9 +82,8 @@ export async function GET() {
       pts: gameDays.map(day => cumPts[id]?.[day] ?? 0),
     }))
 
-  return NextResponse.json({
-    dates: gameDays,
-    series,
-    totalParticipants: profiles.length,
-  })
+  return NextResponse.json(
+    { dates: gameDays, series, totalParticipants: profiles.length },
+    { headers: { 'Cache-Control': 'no-store' } }
+  )
 }
