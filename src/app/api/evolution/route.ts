@@ -16,13 +16,27 @@ const toBrtDate = (iso: string) =>
 export async function GET() {
   const supabase = createServiceClient()
 
-  const [{ data: matches }, { data: predictions }, { data: profiles }, { data: standings }] =
+  const [{ data: matches }, { data: profiles }, { data: standings }] =
     await Promise.all([
       supabase.from('matches').select('id, match_date').eq('status', 'finished').order('match_date'),
-      supabase.from('predictions').select('user_id, match_id, pts_total').limit(10000),
       supabase.from('profiles').select('id, name'),
       supabase.from('standings').select('id, rank').order('rank'),
     ])
+
+  // Paginação obrigatória — PostgREST tem hard limit de 1000 rows por request
+  const PAGE = 1000
+  const predictions: { user_id: string; match_id: string; pts_total: number }[] = []
+  let page = 0
+  while (true) {
+    const { data } = await supabase
+      .from('predictions')
+      .select('user_id, match_id, pts_total')
+      .range(page * PAGE, (page + 1) * PAGE - 1)
+    if (!data || data.length === 0) break
+    predictions.push(...data)
+    if (data.length < PAGE) break
+    page++
+  }
 
   if (!matches?.length || !profiles?.length) {
     return NextResponse.json({ dates: [], series: [], totalParticipants: 0 })
@@ -39,7 +53,7 @@ export async function GET() {
 
   // Pontos por usuário por dia
   const dailyPts: Record<string, Record<string, number>> = {}
-  for (const pred of predictions ?? []) {
+  for (const pred of predictions) {
     const date = matchDateMap[pred.match_id]
     if (!date) continue
     if (!dailyPts[pred.user_id]) dailyPts[pred.user_id] = {}
