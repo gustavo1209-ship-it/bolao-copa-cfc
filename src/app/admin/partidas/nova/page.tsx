@@ -175,17 +175,17 @@ export default function NovaPartidaPage() {
 
             <div>
               <label className={labelCls}>
-                ID SofaScore <span className="text-gray-500 font-normal">(opcional — para sincronizar resultado)</span>
+                ID ESPN <span className="text-gray-500 font-normal">(opcional — preenchido automaticamente ao sincronizar)</span>
               </label>
               <input
                 type="number"
                 value={sofascoreId}
                 onChange={e => setSofascoreId(e.target.value)}
-                placeholder="ex: 12345678"
+                placeholder="ex: 760497"
                 className={inputCls}
               />
               <p className="text-xs text-gray-600 mt-1">
-                Encontre o ID na URL do SofaScore: sofascore.com/jogo/.../[ID]
+                Não precisa preencher: a sincronização já encontra o jogo pelo nome dos times e a data.
               </p>
             </div>
 

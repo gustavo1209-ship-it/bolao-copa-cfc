@@ -22,7 +22,8 @@ npx tsc --noEmit
 - Rotas protegidas por `src/proxy.ts` (redireciona para `/login` sem sessão)
 - Rotas públicas: `/`, `/ranking` (leitura pública do banco)
 - Rotas admin: `/admin/**` — protegidas por `is_admin = true` no layout
-- Mutações via API Route (`/api/sofascore/sync/[matchId]`) + client-side com `router.refresh()`
+- Mutações via API Route (`/api/espn/sync/[matchId]`) + client-side com `router.refresh()`
+- Sincronização de placares via ESPN (`site.api.espn.com`): cron automático a cada 15min (`/api/cron/sync-matches`) + sync manual pelo admin (`/api/espn/sync/[matchId]`) + preenchimento de confrontos futuros (`/api/espn/sync-phase`). Lógica compartilhada em `src/lib/espn.ts`. A coluna `matches.sofascore_id` foi reaproveitada para guardar o ID de evento da ESPN.
 
 ## Banco (Supabase)
 

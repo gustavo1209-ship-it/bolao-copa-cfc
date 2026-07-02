@@ -52,7 +52,7 @@ export default async function AdminPage() {
           >
             <Calendar size={28} className="text-orange-500 mb-3" />
             <h2 className="font-bold text-lg mb-1 group-hover:text-orange-400 transition-colors">Gerenciar Partidas</h2>
-            <p className="text-sm text-gray-500">Adicionar partidas, atualizar placares e sincronizar com SofaScore</p>
+            <p className="text-sm text-gray-500">Adicionar partidas, atualizar placares e sincronizar com a ESPN</p>
           </Link>
 
           <Link
@@ -79,7 +79,7 @@ export default async function AdminPage() {
         <div className="mt-6 bg-blue-900/20 border border-blue-500/20 rounded-xl p-4">
           <p className="text-sm text-blue-300 flex items-center gap-2">
             <RefreshCw size={14} />
-            Para sincronizar resultados com o SofaScore: vá em <strong>Gerenciar Partidas</strong>, localize a partida finalizada e clique em <strong>&quot;Sincronizar SofaScore&quot;</strong>.
+            Os placares sincronizam automaticamente com a ESPN a cada 15min. Para forçar manualmente: vá em <strong>Gerenciar Partidas</strong>, localize a partida e clique em <strong>&quot;Sincronizar&quot;</strong>.
           </p>
         </div>
       </div>

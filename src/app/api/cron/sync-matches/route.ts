@@ -3,68 +3,8 @@ export const runtime = 'edge'
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { calculatePoints } from '@/lib/scoring'
+import { fetchEspnEvents, findEspnEvent, extractResult } from '@/lib/espn'
 import { type Stage } from '@/types'
-
-// Mapeamento PT-BR (nosso banco) → EN (ESPN)
-const ESPN_NAMES: Record<string, string> = {
-  'México': 'Mexico',
-  'África do Sul': 'South Africa',
-  'Coreia do Sul': 'South Korea',
-  'República Tcheca': 'Czech Republic',
-  'Canadá': 'Canada',
-  'Bósnia-Herzegovina': 'Bosnia-Herzegovina',
-  'Catar': 'Qatar',
-  'Suíça': 'Switzerland',
-  'Brasil': 'Brazil',
-  'Marrocos': 'Morocco',
-  'Haiti': 'Haiti',
-  'Escócia': 'Scotland',
-  'Estados Unidos': 'United States',
-  'Paraguai': 'Paraguay',
-  'Austrália': 'Australia',
-  'Turquia': 'Turkey',
-  'Alemanha': 'Germany',
-  'Curaçao': 'Curaçao',
-  'Costa do Marfim': 'Ivory Coast',
-  'Equador': 'Ecuador',
-  'Holanda': 'Netherlands',
-  'Japão': 'Japan',
-  'Suécia': 'Sweden',
-  'Tunísia': 'Tunisia',
-  'Bélgica': 'Belgium',
-  'Egito': 'Egypt',
-  'Irã': 'Iran',
-  'Nova Zelândia': 'New Zealand',
-  'Espanha': 'Spain',
-  'Cabo Verde': 'Cape Verde',
-  'Arábia Saudita': 'Saudi Arabia',
-  'Uruguai': 'Uruguay',
-  'França': 'France',
-  'Senegal': 'Senegal',
-  'Iraque': 'Iraq',
-  'Noruega': 'Norway',
-  'Argentina': 'Argentina',
-  'Argélia': 'Algeria',
-  'Áustria': 'Austria',
-  'Jordânia': 'Jordan',
-  'Portugal': 'Portugal',
-  'Congo (RD)': 'DR Congo',
-  'Uzbequistão': 'Uzbekistan',
-  'Colômbia': 'Colombia',
-  'Inglaterra': 'England',
-  'Croácia': 'Croatia',
-  'Gana': 'Ghana',
-  'Panamá': 'Panama',
-}
-
-function norm(s: string) {
-  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
-}
-
-function teamMatches(dbName: string, espnName: string): boolean {
-  const en = ESPN_NAMES[dbName] ?? dbName
-  return norm(en) === norm(espnName)
-}
 
 export async function GET(request: Request) {
   const auth = request.headers.get('authorization')
@@ -94,40 +34,16 @@ export async function GET(request: Request) {
   }
 
   for (const [dateStr, matches] of Object.entries(byDate)) {
-    let espnEvents: unknown[]
+    let espnEvents: Awaited<ReturnType<typeof fetchEspnEvents>>
     try {
-      const res = await fetch(
-        `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${dateStr}`,
-        { cache: 'no-store' }
-      )
-      if (!res.ok) {
-        for (const m of matches!) errors.push(`${m!.home_team} vs ${m!.away_team}: ESPN HTTP ${res.status}`)
-        continue
-      }
-      const data = await res.json() as { events?: unknown[] }
-      espnEvents = data.events ?? []
+      espnEvents = await fetchEspnEvents(dateStr)
     } catch (e) {
       for (const m of matches!) errors.push(`${m!.home_team} vs ${m!.away_team}: ${String(e)}`)
       continue
     }
 
     for (const match of matches!) {
-      // Localizar o evento ESPN correspondente
-      const event = (espnEvents as Array<{
-        status: { type: { state: string; completed: boolean } }
-        competitions: Array<{
-          competitors: Array<{ homeAway: string; team: { displayName: string }; score: string }>
-        }>
-      }>).find(ev => {
-        const comps = ev.competitions?.[0]?.competitors ?? []
-        const home = comps.find(c => c.homeAway === 'home')
-        const away = comps.find(c => c.homeAway === 'away')
-        return (
-          home && away &&
-          teamMatches(match!.home_team, home.team.displayName) &&
-          teamMatches(match!.away_team, away.team.displayName)
-        )
-      })
+      const event = findEspnEvent(espnEvents, match!.home_team, match!.away_team)
 
       if (!event) {
         skipped.push(`${match!.home_team} vs ${match!.away_team}: não encontrado na ESPN`)
@@ -139,11 +55,7 @@ export async function GET(request: Request) {
         continue
       }
 
-      const comps = event.competitions[0].competitors
-      const homeComp = comps.find(c => c.homeAway === 'home')!
-      const awayComp = comps.find(c => c.homeAway === 'away')!
-      const homeScore = parseInt(homeComp.score)
-      const awayScore = parseInt(awayComp.score)
+      const { homeScore, awayScore, penaltyWinner, eventId } = extractResult(event, match!.home_team, match!.away_team)
 
       if (isNaN(homeScore) || isNaN(awayScore)) {
         errors.push(`${match!.home_team} vs ${match!.away_team}: placar inválido`)
@@ -154,6 +66,8 @@ export async function GET(request: Request) {
         home_score: homeScore,
         away_score: awayScore,
         status: 'finished',
+        sofascore_id: eventId,
+        ...(penaltyWinner ? { penalty_winner: penaltyWinner } : {}),
       }).eq('id', match!.id)
 
       const { data: preds } = await supabase
@@ -169,7 +83,7 @@ export async function GET(request: Request) {
           awayActual: awayScore,
           stage: match!.stage as Stage,
           penaltyWinnerPrediction: pred.penalty_winner_prediction,
-          penaltyWinnerActual: match!.penalty_winner ?? null,
+          penaltyWinnerActual: penaltyWinner ?? match!.penalty_winner ?? null,
         })
         await supabase.from('predictions').update({
           pts_result: pts.ptsResult,
@@ -182,7 +96,7 @@ export async function GET(request: Request) {
         }).eq('id', pred.id)
       }
 
-      synced.push(`${match!.home_team} vs ${match!.away_team} (${homeScore}–${awayScore})`)
+      synced.push(`${match!.home_team} vs ${match!.away_team} (${homeScore}–${awayScore})${penaltyWinner ? ` [pên: ${penaltyWinner}]` : ''}`)
     }
   }
 

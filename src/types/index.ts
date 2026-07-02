@@ -29,7 +29,7 @@ export interface Match {
   stage: Stage
   group_name: string | null
   status: MatchStatus
-  sofascore_id: number | null
+  sofascore_id: number | null // guarda o ID do evento na ESPN (nome da coluna mantido por compatibilidade)
   penalty_winner: string | null
   created_at: string
 }

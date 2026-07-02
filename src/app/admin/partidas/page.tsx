@@ -79,7 +79,7 @@ export default async function AdminPartidasPage() {
                       timeZone: 'America/Sao_Paulo',
                     })}
                     {m.group_name && ` • Grupo ${m.group_name}`}
-                    {m.sofascore_id && ` • SofaScore ID: ${m.sofascore_id}`}
+                    {m.sofascore_id && ` • ESPN ID: ${m.sofascore_id}`}
                   </div>
                 </div>
 
@@ -91,7 +91,7 @@ export default async function AdminPartidasPage() {
 
                 {/* Actions */}
                 <div className="shrink-0 flex items-center gap-2">
-                  {m.sofascore_id && m.status !== 'finished' && (
+                  {m.status !== 'finished' && m.home_team !== 'TBD' && m.away_team !== 'TBD' && (
                     <Link
                       href={`/admin/partidas/${m.id}?sync=1`}
                       className="flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 border border-blue-500/30 rounded-lg transition-colors"

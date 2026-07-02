@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { NextResponse } from 'next/server'
 import { calculatePoints } from '@/lib/scoring'
+import { fetchEspnEvents, findEspnEvent, extractResult } from '@/lib/espn'
 import { type Stage } from '@/types'
 
 interface RouteProps {
@@ -22,64 +23,55 @@ export async function POST(request: Request, { params }: RouteProps) {
   // Service client para bypassar RLS nas operações de dados
   const supabase = createServiceClient()
 
-  // Verificar se é chamada manual (placar já atualizado) ou via SofaScore
+  // Verificar se é chamada manual (placar já informado pelo admin) ou automática via ESPN
   const body = await request.json().catch(() => ({}))
   const isManual = body.manual === true
 
   let homeScore: number
   let awayScore: number
   let newStatus: string
+  let penaltyWinner: string | null = null
 
   if (isManual) {
     homeScore = body.homeScore
     awayScore = body.awayScore
     newStatus = body.status ?? 'finished'
   } else {
-    // Buscar partida para pegar sofascore_id
     const { data: match } = await supabase.from('matches').select('*').eq('id', matchId).single()
-    if (!match?.sofascore_id) {
-      return NextResponse.json({ error: 'Esta partida não tem ID do SofaScore.' }, { status: 400 })
-    }
+    if (!match) return NextResponse.json({ error: 'Partida não encontrada.' }, { status: 404 })
 
-    // Buscar resultado no SofaScore (API não-oficial)
-    let sfData: Record<string, unknown>
+    const dateStr = new Date(match.match_date).toISOString().slice(0, 10).replace(/-/g, '')
+    let events: Awaited<ReturnType<typeof fetchEspnEvents>>
     try {
-      const sfRes = await fetch(`https://api.sofascore.com/api/v1/event/${match.sofascore_id}`, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120',
-          'Accept': 'application/json',
-          'Referer': 'https://www.sofascore.com/',
-        },
-        cache: 'no-store',
-      })
-      if (!sfRes.ok) {
-        return NextResponse.json({ error: `SofaScore retornou status ${sfRes.status}` }, { status: 502 })
-      }
-      sfData = await sfRes.json()
+      events = await fetchEspnEvents(dateStr)
     } catch {
-      return NextResponse.json({ error: 'Erro ao buscar dados do SofaScore.' }, { status: 502 })
+      return NextResponse.json({ error: 'Erro ao buscar dados da ESPN.' }, { status: 502 })
     }
 
-    const event = sfData.event as Record<string, unknown>
-    if (!event) return NextResponse.json({ error: 'Formato inesperado do SofaScore.' }, { status: 502 })
-
-    const sfStatus = (event.status as Record<string, unknown>)?.type as string
-    const homeScoreData = event.homeScore as Record<string, unknown>
-    const awayScoreData = event.awayScore as Record<string, unknown>
-
-    if (sfStatus !== 'finished') {
-      return NextResponse.json({ error: `Jogo ainda não finalizado (status: ${sfStatus})`, status: sfStatus }, { status: 400 })
+    const event = findEspnEvent(events, match.home_team, match.away_team)
+    if (!event) {
+      return NextResponse.json({ error: 'Partida não encontrada na ESPN.' }, { status: 404 })
+    }
+    if (!event.status.type.completed) {
+      return NextResponse.json({ error: `Jogo ainda não finalizado (status: ${event.status.type.name})` }, { status: 400 })
     }
 
-    homeScore = (homeScoreData?.current as number) ?? 0
-    awayScore = (awayScoreData?.current as number) ?? 0
+    const result = extractResult(event, match.home_team, match.away_team)
+    if (isNaN(result.homeScore) || isNaN(result.awayScore)) {
+      return NextResponse.json({ error: 'Placar inválido retornado pela ESPN.' }, { status: 502 })
+    }
+
+    homeScore = result.homeScore
+    awayScore = result.awayScore
+    penaltyWinner = result.penaltyWinner
     newStatus = 'finished'
 
-    // Atualizar a partida no banco
     await supabase.from('matches').update({
       home_score: homeScore,
       away_score: awayScore,
       status: newStatus,
+      sofascore_id: result.eventId,
+      ...(penaltyWinner ? { penalty_winner: penaltyWinner } : {}),
     }).eq('id', matchId)
   }
 
@@ -123,6 +115,7 @@ export async function POST(request: Request, { params }: RouteProps) {
     homeScore,
     awayScore,
     status: newStatus,
+    penaltyWinner: finalMatch.penalty_winner,
     predictionsUpdated: predictions?.length ?? 0,
   })
 }

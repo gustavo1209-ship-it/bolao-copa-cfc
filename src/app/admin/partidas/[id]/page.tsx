@@ -72,7 +72,7 @@ export default function EditarPartidaPage({ params }: Props) {
 
   // Auto sync if redirected from list
   useEffect(() => {
-    if (autoSync && match && match.sofascore_id && !syncing) {
+    if (autoSync && match && match.status !== 'finished' && !syncing) {
       handleSync()
     }
   }, [match, autoSync]) // eslint-disable-line
@@ -108,7 +108,7 @@ export default function EditarPartidaPage({ params }: Props) {
     } else {
       // Se placar foi atualizado e status é finished, calcular pontos
       if (status === 'finished' && homeScore !== '' && awayScore !== '') {
-        await fetch(`/api/sofascore/sync/${matchId}`, {
+        await fetch(`/api/espn/sync/${matchId}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -126,55 +126,25 @@ export default function EditarPartidaPage({ params }: Props) {
   }
 
   async function handleSync() {
-    if (!match?.sofascore_id) return
     setSyncing(true)
     setSyncMsg('')
     setError('')
 
-    // Busca do SofaScore direto pelo browser (evita bloqueio de IP de servidor)
-    let sfHomeScore: number
-    let sfAwayScore: number
-    try {
-      const sfRes = await fetch(`https://api.sofascore.com/api/v1/event/${match.sofascore_id}`, {
-        headers: { 'Accept': 'application/json' },
-        cache: 'no-store',
-      })
-      if (!sfRes.ok) {
-        setError(`SofaScore retornou status ${sfRes.status}. Use o placar manual abaixo.`)
-        setSyncing(false)
-        return
-      }
-      const sfData = await sfRes.json()
-      const event = sfData.event
-      if (!event) throw new Error('Formato inesperado')
-      const sfStatus = event.status?.type as string
-      if (sfStatus !== 'finished') {
-        setError(`Jogo ainda não finalizado no SofaScore (status: ${sfStatus})`)
-        setSyncing(false)
-        return
-      }
-      sfHomeScore = event.homeScore?.current ?? 0
-      sfAwayScore = event.awayScore?.current ?? 0
-    } catch {
-      setError('Erro ao acessar SofaScore. Use o placar manual abaixo.')
-      setSyncing(false)
-      return
-    }
-
-    // Envia para a API como sync manual com os dados já buscados
-    const res = await fetch(`/api/sofascore/sync/${matchId}`, {
+    // Busca o resultado direto na ESPN a partir do servidor (nome dos times + data)
+    const res = await fetch(`/api/espn/sync/${matchId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ manual: true, homeScore: sfHomeScore, awayScore: sfAwayScore, status: 'finished' }),
+      body: JSON.stringify({}),
     })
     const data = await res.json()
 
     if (data.error) {
       setError(data.error)
     } else {
-      setSyncMsg(`✅ Sincronizado! ${sfHomeScore}–${sfAwayScore} (${data.predictionsUpdated} palpites pontuados)`)
-      setHomeScore(sfHomeScore.toString())
-      setAwayScore(sfAwayScore.toString())
+      setSyncMsg(`✅ Sincronizado! ${data.homeScore}–${data.awayScore}${data.penaltyWinner ? ` (pên: ${data.penaltyWinner})` : ''} (${data.predictionsUpdated} palpites pontuados)`)
+      setHomeScore(data.homeScore.toString())
+      setAwayScore(data.awayScore.toString())
+      if (data.penaltyWinner) setPenaltyWinner(data.penaltyWinner)
       setStatus('finished')
     }
     setSyncing(false)
@@ -220,14 +190,16 @@ export default function EditarPartidaPage({ params }: Props) {
             </button>
           </div>
 
-          {/* SofaScore sync */}
-          {match?.sofascore_id && (
+          {/* ESPN sync */}
+          {match && match.status !== 'finished' && (
             <div className="mb-5 p-4 bg-blue-900/20 border border-blue-500/20 rounded-xl">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-blue-300">ID SofaScore: {match.sofascore_id}</p>
+                  <p className="text-sm font-medium text-blue-300">
+                    {match.sofascore_id ? `ID ESPN: ${match.sofascore_id}` : 'Sincronização via ESPN'}
+                  </p>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    Sincroniza placar e status automaticamente
+                    Busca placar e status automaticamente pelo nome dos times e data
                   </p>
                 </div>
                 <button
@@ -290,8 +262,8 @@ export default function EditarPartidaPage({ params }: Props) {
             </div>
 
             <div>
-              <label className={labelCls}>ID SofaScore</label>
-              <input type="number" value={sofascoreId} onChange={e => setSofascoreId(e.target.value)} placeholder="ex: 12345678" className={inputCls} />
+              <label className={labelCls}>ID ESPN (preenchido automaticamente na sincronização)</label>
+              <input type="number" value={sofascoreId} onChange={e => setSofascoreId(e.target.value)} placeholder="ex: 760497" className={inputCls} />
             </div>
 
             {/* Placar manual */}

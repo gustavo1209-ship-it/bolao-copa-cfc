@@ -11,7 +11,7 @@ export function SyncPhaseButton() {
     setStatus('loading')
     setResult(null)
     try {
-      const res = await fetch('/api/sofascore/sync-phase', { method: 'POST' })
+      const res = await fetch('/api/espn/sync-phase', { method: 'POST' })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Erro desconhecido')
       setResult(data)
@@ -27,7 +27,7 @@ export function SyncPhaseButton() {
       <RefreshCw size={28} className="text-violet-400 mb-3" />
       <h2 className="font-bold text-lg mb-1">Sincronizar Confrontos</h2>
       <p className="text-sm text-gray-500 mb-4">
-        Preenche automaticamente times TBD nas próximas fases usando o Sofascore
+        Preenche automaticamente times TBD nas próximas fases usando a ESPN
       </p>
 
       <button
